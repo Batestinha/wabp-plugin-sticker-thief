@@ -2,6 +2,8 @@ import type { CommandContext, CommandResult } from '@wabs/plugin-sdk/commands';
 import { requireScopeId } from '@wabs/plugin-sdk/commands';
 import type { CommandMetadata, CommandTargetSpec } from '@wabs/plugin-sdk/command-metadata';
 import type { ManagedGroupCommandContext } from '@wabs/plugin-sdk/managed-group-plugin';
+import type { PluginDatabase } from '@wabs/plugin-sdk/database';
+import type { StickerThiefConfig } from './config';
 import {
   isCadence,
   STICKER_THIEF_MANAGE_PERMISSION,
@@ -9,7 +11,7 @@ import {
   STICKER_THIEF_PLUGIN_ID
 } from './constants';
 import { configFor, deliverBatch, nowFrom, scheduleDigest, selectDeliveryIds, stanzaIdOf, startBackfill, startDelivery, stickerDatabase, type StickerThiefDeps } from './service';
-import { backfillImported, deleteSubscription, forgetStickerBySighting, getSubscription, scopeStats, upsertSubscription } from './store';
+import { backfillImported, clearDeliveries, deleteSubscription, forgetStickerBySighting, getSubscription, recentlyDeliveredIds, scopeStats, upsertSubscription } from './store';
 
 const CHAT_FLAG_TARGET: CommandTargetSpec = { kind: 'group', name: 'chat', flag: 'chat' };
 const SCOPE_TARGET: CommandTargetSpec = { kind: 'scope', flag: ['scope', 'scope-id'], fallback: 'current_scope' };
@@ -129,6 +131,30 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     }));
   });
 
+  async function sendStickers(ctx: CommandContext, call: Invocation, config: StickerThiefConfig, db: PluginDatabase, stickerIds: number[]): Promise<CommandResult | undefined> {
+    const delivery = stickerIds.length
+      ? startDelivery(db, {
+          scopeId: call.scopeId, identityId: call.identityId, chatId: call.deliveryChatId, stickerIds,
+          asPacks: config.deliverAsPacks,
+          packName: ctx.t(`${ns}.packName`, { date: nowFrom(deps).toISOString().slice(0, 10) })
+        })
+      : undefined;
+    const actions = delivery ? await deliverBatch(deps, db, delivery) : [];
+    if (!delivery || !actions.length) return undefined;
+    const key = delivery.packCount ? `${ns}.sendingPacks` : delivery.batches.length > 1 ? `${ns}.sendingBatched` : `${ns}.sending`;
+    return reply(ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }), { pluginActions: actions });
+  }
+
+  async function prepared(ctx: CommandContext): Promise<{ call: Invocation; config: StickerThiefConfig; db: PluginDatabase } | CommandResult> {
+    const call = invocation(ctx);
+    const config = await configFor(deps, call.scopeId, call.identityId);
+    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
+    if (ctx.managementMode === 'OBSERVE') return reply(ctx.t(`${ns}.observeOnly`));
+    const db = stickerDatabase(deps);
+    if (!db || !deps.mediaStore) return reply(ctx.t(`${ns}.unavailable`));
+    return { call, config, db };
+  }
+
   for (const [subcommand, order, exampleKey] of [
     ['send', 'oldest-unseen', `${ns}.help.send.example`],
     ['random', 'random', `${ns}.help.random.example`]
@@ -136,12 +162,9 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     router.register('stickers', subcommand, stickerCommand({
       subcommand, topicId: 'get-stickers', mutation: 'durable', exampleKey
     }), async (ctx) => {
-      const call = invocation(ctx);
-      const config = await configFor(deps, call.scopeId, call.identityId);
-      if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
-      if (ctx.managementMode === 'OBSERVE') return reply(ctx.t(`${ns}.observeOnly`));
-      const db = stickerDatabase(deps);
-      if (!db || !deps.mediaStore) return reply(ctx.t(`${ns}.unavailable`));
+      const ready = await prepared(ctx);
+      if ('handled' in ready) return ready;
+      const { call, config, db } = ready;
       const stickerIds = selectDeliveryIds(db, {
         scopeId: call.scopeId,
         identityId: call.identityId,
@@ -149,22 +172,29 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
         includeAnimated: config.includeAnimated,
         order
       });
-      const delivery = stickerIds.length
-        ? startDelivery(db, {
-            scopeId: call.scopeId, identityId: call.identityId, chatId: call.deliveryChatId, stickerIds,
-            asPacks: config.deliverAsPacks,
-            packName: ctx.t(`${ns}.packName`, { date: nowFrom(deps).toISOString().slice(0, 10) })
-          })
-        : undefined;
-      const actions = delivery ? await deliverBatch(deps, db, delivery) : [];
-      if (!delivery || !actions.length) {
-        const { total } = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
-        return reply(ctx.t(total ? `${ns}.noNewStickers` : `${ns}.noStickers`, { total }));
-      }
-      const key = delivery.packCount ? `${ns}.sendingPacks` : delivery.batches.length > 1 ? `${ns}.sendingBatched` : `${ns}.sending`;
-      return reply(ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }), { pluginActions: actions });
+      const sent = await sendStickers(ctx, call, config, db, stickerIds);
+      if (sent) return sent;
+      const { total } = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
+      return reply(ctx.t(total ? `${ns}.noNewStickers` : `${ns}.noStickers`, { total }));
     });
   }
+
+  router.register('stickers', 'resend', stickerCommand({
+    subcommand: 'resend', topicId: 'get-stickers', mutation: 'durable', exampleKey: `${ns}.help.resend.example`
+  }), async (ctx) => {
+    const ready = await prepared(ctx);
+    if ('handled' in ready) return ready;
+    const { call, config, db } = ready;
+    const raw = args(ctx)[0];
+    const parsed = raw ? Number.parseInt(raw, 10) : 0;
+    const stickerIds = recentlyDeliveredIds(db, {
+      scopeId: call.scopeId, identityId: call.identityId, includeAnimated: config.includeAnimated,
+      limit: Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0
+    });
+    if (!stickerIds.length) return reply(ctx.t(`${ns}.nothingToResend`));
+    clearDeliveries(db, call.scopeId, call.identityId, stickerIds);
+    return (await sendStickers(ctx, call, config, db, stickerIds)) ?? reply(ctx.t(`${ns}.nothingToResend`));
+  });
 
   router.register('stickers', 'forget', stickerCommand({
     subcommand: 'forget', topicId: 'manage-stickers', mutation: 'durable',

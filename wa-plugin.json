@@ -4,7 +4,7 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "coreApiRange": "^0.3.17",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -15,6 +15,7 @@
     "/stickers status",
     "/stickers send",
     "/stickers random",
+    "/stickers resend",
     "/stickers forget"
   ],
   "help": {
@@ -62,19 +63,24 @@
         "order": 20,
         "commands": [
           "/stickers send",
-          "/stickers random"
+          "/stickers random",
+          "/stickers resend"
         ],
         "instructionKeys": [
           "official.sticker-thief.help.get.instruction"
         ],
         "exampleKeys": [
           "official.sticker-thief.help.send.example",
-          "official.sticker-thief.help.random.example"
+          "official.sticker-thief.help.random.example",
+          "official.sticker-thief.help.resend.example"
         ],
         "keywords": [
           "send",
           "random",
-          "get"
+          "get",
+          "resend",
+          "again",
+          "blank"
         ],
         "availability": {
           "invocation": "either",
@@ -149,6 +155,7 @@
     "limitations": [
       "Only WebP stickers are collected; Lottie stickers are skipped.",
       "Deliveries arrive as native sticker packs of up to 30 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.",
+      "Stickers outside WhatsApp pack rules (512x512, at most 100 KB still or 500 KB animated) are always sent individually.",
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
       "Members only receive stickers collected in groups of the same scope."
     ],
@@ -166,7 +173,8 @@
         "description": "Send stickers to the member now.",
         "commands": [
           "/stickers send",
-          "/stickers random"
+          "/stickers random",
+          "/stickers resend"
         ]
       },
       {
@@ -299,7 +307,7 @@
         "id": "plugin.official.sticker-thief.deliverAsPacks",
         "path": "deliverAsPacks",
         "label": "Send as sticker packs",
-        "description": "Deliver stickers as native WhatsApp sticker packs of up to 30 (leftovers of 1-2 are sent individually). Turn off to send every sticker individually.",
+        "description": "Deliver stickers as native WhatsApp sticker packs of up to 30 (leftovers of 1-2, and stickers outside the WhatsApp pack rules, are sent individually). Turn off to send every sticker individually.",
         "section": "Sticker Thief",
         "order": 62,
         "schema": {
@@ -307,7 +315,7 @@
         },
         "ui": {
           "widget": "toggle",
-          "helpText": "Deliver stickers as native WhatsApp sticker packs of up to 30 (leftovers of 1-2 are sent individually). Turn off to send every sticker individually."
+          "helpText": "Deliver stickers as native WhatsApp sticker packs of up to 30 (leftovers of 1-2, and stickers outside the WhatsApp pack rules, are sent individually). Turn off to send every sticker individually."
         }
       },
       {

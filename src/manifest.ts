@@ -19,6 +19,7 @@ export const stickerThiefCommands = [
   '/stickers status',
   '/stickers send',
   '/stickers random',
+  '/stickers resend',
   '/stickers forget'
 ];
 
@@ -54,10 +55,10 @@ export const stickerThiefManifest: PluginManifest = {
         titleKey: `${ns}.help.get.title`,
         summaryKey: `${ns}.help.get.summary`,
         order: 20,
-        commands: ['/stickers send', '/stickers random'],
+        commands: ['/stickers send', '/stickers random', '/stickers resend'],
         instructionKeys: [`${ns}.help.get.instruction`],
-        exampleKeys: [`${ns}.help.send.example`, `${ns}.help.random.example`],
-        keywords: ['send', 'random', 'get'],
+        exampleKeys: [`${ns}.help.send.example`, `${ns}.help.random.example`, `${ns}.help.resend.example`],
+        keywords: ['send', 'random', 'get', 'resend', 'again', 'blank'],
         availability: { invocation: 'either', requiresCurrentManagedGroupMembership: true, currentManagedGroupMembershipMode: 'effective_scope' }
       },
       {
@@ -97,12 +98,13 @@ export const stickerThiefManifest: PluginManifest = {
     limitations: [
       'Only WebP stickers are collected; Lottie stickers are skipped.',
       'Deliveries arrive as native sticker packs of up to 30 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.',
+      'Stickers outside WhatsApp pack rules (512x512, at most 100 KB still or 500 KB animated) are always sent individually.',
       'Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.',
       'Members only receive stickers collected in groups of the same scope.'
     ],
     workflows: [
       { intent: 'sticker_subscribe', description: 'Start or stop private sticker digests.', commands: ['/stickers subscribe', '/stickers unsubscribe'] },
-      { intent: 'sticker_send', description: 'Send stickers to the member now.', commands: ['/stickers send', '/stickers random'] },
+      { intent: 'sticker_send', description: 'Send stickers to the member now.', commands: ['/stickers send', '/stickers random', '/stickers resend'] },
       { intent: 'sticker_status', description: 'Show collection size and subscription state.', commands: ['/stickers status'] }
     ]
   }

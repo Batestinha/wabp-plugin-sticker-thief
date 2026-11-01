@@ -179,6 +179,30 @@ export function backfillImported(db: PluginDatabase, scopeId: string): number {
   return Number(db.get<{ n: number }>('SELECT COALESCE(SUM(imported), 0) AS n FROM backfill_chats WHERE scope_id = ?', scopeId)?.n ?? 0);
 }
 
+/** The member's most recently delivered stickers in the scope (0 = all), returned in collection order. */
+export function recentlyDeliveredIds(db: PluginDatabase, input: { scopeId: string; identityId: string; limit: number; includeAnimated: boolean }): number[] {
+  const rows = db.all<{ id: number }>(
+    `SELECT s.id FROM deliveries d
+       JOIN stickers s ON s.id = d.sticker_id
+       JOIN sticker_scopes ss ON ss.sticker_id = s.id AND ss.scope_id = d.scope_id
+      WHERE d.scope_id = ? AND d.identity_id = ? AND (? = 1 OR s.animated = 0)
+      ORDER BY d.delivered_at DESC, s.id DESC
+      LIMIT ?`,
+    input.scopeId, input.identityId, input.includeAnimated ? 1 : 0, input.limit > 0 ? input.limit : -1
+  ).map((row) => Number(row.id));
+  if (!rows.length) return [];
+  const order = new Map(db.all<{ id: number }>(
+    `SELECT sticker_id AS id FROM sticker_scopes WHERE scope_id = ? ORDER BY first_seen_at, sticker_id`, input.scopeId
+  ).map((row, index) => [Number(row.id), index]));
+  return rows.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+}
+
+/** Forgets that these stickers were delivered, so they count as new for the member again. */
+export function clearDeliveries(db: PluginDatabase, scopeId: string, identityId: string, stickerIds: number[]): number {
+  return db.transaction(() => stickerIds.reduce((total, id) =>
+    total + Number(db.run('DELETE FROM deliveries WHERE scope_id = ? AND identity_id = ? AND sticker_id = ?', scopeId, identityId, id).changes), 0));
+}
+
 export function recordDeliveries(db: PluginDatabase, scopeId: string, identityId: string, stickerIds: number[], at: Date): void {
   db.transaction(() => {
     for (const stickerId of stickerIds) {

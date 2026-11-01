@@ -379,3 +379,39 @@ test('digests arrive as packs after the header', async () => {
   assert.deepEqual(actions.map(a => a.type), ['message.sendText', 'message.sendStickerPack']);
   assert.equal(actions[1].pack.stickers.length, 5);
 });
+
+// --- 0.4.0: pack rules and resend -----------------------------------------
+
+test('stickers outside WhatsApp pack rules are sent individually, never inside a pack', async () => {
+  const h = setup();
+  for (let i = 0; i < 4; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `ok${i}` })));
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'small', width: 240, height: 240 })));
+  const big = h.addSticker(webp({ salt: 'big' }));
+  await collectSticker(h.context, SCOPE, big);
+  h.db.run("UPDATE stickers SET size_bytes = ? WHERE sha256 = (SELECT s.sha256 FROM sticker_sightings ss JOIN stickers s ON s.id = ss.sticker_id WHERE ss.stanza_id = ?)",
+    150 * 1024, big.id.split('_')[2]);
+  const first = await h.command('send');
+  assert.match(first.text, /sendingPacks.*"count":6.*"packs":1/);
+  assert.equal(first.pluginActions[0].pack.stickers.length, 4);
+  const rest = (await drainDeliveries(h)).flat();
+  assert.deepEqual(rest.map(a => a.type), ['message.sendSticker', 'message.sendSticker']);
+  const packed = new Set(first.pluginActions[0].pack.stickers.map(s => s.file.filename));
+  assert.ok(rest.every(a => !packed.has(a.file.filename)));
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 6);
+});
+
+test('resend sends the most recently received stickers again, in collection order', async () => {
+  const h = setup();
+  assert.match((await h.command('resend')).text, /nothingToResend/);
+  for (let i = 0; i < 5; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `r${i}` })));
+  const firstFilenames = (await h.command('send')).pluginActions[0].pack.stickers.map(s => s.file.filename);
+  assert.match((await h.command('send')).text, /noNewStickers/);
+  const all = await h.command('resend');
+  assert.equal(all.pluginActions[0].type, 'message.sendStickerPack');
+  assert.deepEqual(all.pluginActions[0].pack.stickers.map(s => s.file.filename), firstFilenames);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 5, 'recorded again after resending');
+  const two = await h.command('resend', { args: ['2'] });
+  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendSticker', 'message.sendSticker']);
+  assert.match((await h.command('send')).text, /noNewStickers/);
+  assert.match((await h.command('resend', { identityId: 'bob' })).text, /nothingToResend/, 'per member');
+});

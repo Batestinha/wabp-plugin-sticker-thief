@@ -14,6 +14,9 @@ import {
   DELIVERY_BATCH_SIZE,
   DELIVERY_BATCH_SPACING_MS,
   STICKER_MIME_TYPE,
+  PACK_MAX_ANIMATED_BYTES,
+  PACK_MAX_STILL_BYTES,
+  PACK_STICKER_DIMENSION,
   STICKER_PACK_MAX,
   STICKER_PACK_MIN,
   STICKER_PACK_PUBLISHER,
@@ -36,6 +39,7 @@ import {
   selectStickers,
   stickersByIds,
   type RecordStickerResult,
+  type StickerRow,
   type SubscriptionRow
 } from './store';
 import { parseWebPInfo } from './webp';
@@ -175,14 +179,20 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-/** Plans the whole delivery: packs per sticker kind, singles for small leftovers. */
+/** WhatsApp only accepts 512x512 pack stickers up to 100 KB (still) or 500 KB (animated). */
+export function isPackEligible(row: Pick<StickerRow, 'width' | 'height' | 'animated' | 'size_bytes'>): boolean {
+  const limit = Number(row.animated) ? PACK_MAX_ANIMATED_BYTES : PACK_MAX_STILL_BYTES;
+  return Number(row.width) === PACK_STICKER_DIMENSION && Number(row.height) === PACK_STICKER_DIMENSION && Number(row.size_bytes) <= limit;
+}
+
+/** Plans the whole delivery: packs per sticker kind; out-of-spec stickers and small leftovers go individually. */
 export function planDeliveryBatches(db: PluginDatabase, scopeId: string, stickerIds: number[], asPacks: boolean): DeliveryBatch[] {
   if (!asPacks) return chunk(stickerIds, DELIVERY_BATCH_SIZE).map((ids) => ({ pack: false, ids }));
   const rows = stickersByIds(db, scopeId, stickerIds);
   const batches: DeliveryBatch[] = [];
-  const singles: number[] = [];
+  const singles: number[] = rows.filter((row) => !isPackEligible(row)).map((row) => Number(row.id));
   for (const animated of [0, 1]) {
-    const ids = rows.filter((row) => Number(row.animated) === animated).map((row) => Number(row.id));
+    const ids = rows.filter((row) => Number(row.animated) === animated && isPackEligible(row)).map((row) => Number(row.id));
     for (const group of chunk(ids, STICKER_PACK_MAX)) {
       if (group.length >= STICKER_PACK_MIN) batches.push({ pack: true, ids: group });
       else singles.push(...group);
