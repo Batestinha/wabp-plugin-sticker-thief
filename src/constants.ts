@@ -1,7 +1,7 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.4.0';
-export const STICKER_THIEF_CORE_API_RANGE = '^0.3.17';
+export const STICKER_THIEF_VERSION = '0.5.0';
+export const STICKER_THIEF_CORE_API_RANGE = '^0.3.18';
 export const STICKER_THIEF_DATABASE = 'stickers';
 export const STICKER_THIEF_DIGEST_JOB = 'sticker-thief.digest';
 export const STICKER_THIEF_DELIVER_JOB = 'sticker-thief.deliver';
@@ -9,8 +9,8 @@ export const STICKER_THIEF_BACKFILL_JOB = 'sticker-thief.backfill';
 /** Stickers sent per batch; larger deliveries continue in follow-up jobs so WhatsApp is not flooded. */
 export const DELIVERY_BATCH_SIZE = 10;
 export const DELIVERY_BATCH_SPACING_MS = 30_000;
-/** WhatsApp sticker packs hold up to 30 stickers; smaller leftovers are sent individually. */
-export const STICKER_PACK_MAX = 30;
+/** WhatsApp user-created sticker packs hold up to 60 stickers; smaller leftovers are sent individually. */
+export const STICKER_PACK_MAX = 60;
 export const STICKER_PACK_MIN = 3;
 export const STICKER_PACK_SPACING_MS = 15_000;
 export const STICKER_PACK_PUBLISHER = 'Sticker Thief';

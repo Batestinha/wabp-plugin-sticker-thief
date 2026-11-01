@@ -35,7 +35,7 @@ than one); add `--chat <name>` to pick one directly.
   time of day and skip slots missed while the bot was down. Each sends a short
   header plus up to `digestSize` stickers the member has not received yet.
   Nothing is sent when the scope is in `OBSERVE` mode.
-- Deliveries arrive as native sticker packs of up to 30 (still and animated apart). Stickers outside WhatsApp's pack rules (512×512, at most 100 KB still or 500 KB animated) and leftovers of 1–2 are sent individually. Turn `deliverAsPacks` off to send everything individually.
+- Deliveries arrive as native sticker packs of up to 60 (still and animated apart). Stickers outside WhatsApp's pack rules (512×512, at most 100 KB still or 500 KB animated) and leftovers of 1–2 are sent individually. Turn `deliverAsPacks` off to send everything individually.
 - Every send carries a per-request idempotency key, so repeated requests always deliver.
 
 ## Configuration (per scope)

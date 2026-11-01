@@ -137,7 +137,7 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
 
 // ---------------------------------------------------------------------------
 // Delivery: no overall cap. A request is planned up front into batches that
-// follow-up jobs send one at a time: native sticker packs (up to 30 stickers,
+// follow-up jobs send one at a time: native sticker packs (up to 60 stickers,
 // still and animated kept apart) or, for leftovers and when packs are off,
 // single stickers in groups of DELIVERY_BATCH_SIZE.
 // ---------------------------------------------------------------------------

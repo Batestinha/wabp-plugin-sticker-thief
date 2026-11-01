@@ -97,7 +97,7 @@ export const stickerThiefManifest: PluginManifest = {
     ],
     limitations: [
       'Only WebP stickers are collected; Lottie stickers are skipped.',
-      'Deliveries arrive as native sticker packs of up to 30 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.',
+      'Deliveries arrive as native sticker packs of up to 60 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.',
       'Stickers outside WhatsApp pack rules (512x512, at most 100 KB still or 500 KB animated) are always sent individually.',
       'Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.',
       'Members only receive stickers collected in groups of the same scope.'

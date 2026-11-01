@@ -15,8 +15,8 @@ test('package metadata matches the executable manifest', () => {
     assert.deepEqual(plugin.manifest[key], metadata[key], key);
   }
   assert.equal(metadata.version, pkg.version);
-  // Sticker packs (message.sendStickerPack) exist from core API 0.3.17.
-  assert.equal(metadata.coreApiRange, '^0.3.17');
+  // Sticker packs of up to 60 stickers need core API 0.3.18.
+  assert.equal(metadata.coreApiRange, '^0.3.18');
 });
 
 test('every default message has a non-empty pt-PT translation and no extras', () => {

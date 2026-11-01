@@ -331,17 +331,17 @@ test('backfill starts once per scope on the first message, on subscribe, and on 
 
 // --- 0.3.0: native sticker packs -------------------------------------------
 
-test('delivers as sticker packs of up to 30, still and animated apart, leftovers individually', async () => {
+test('delivers as sticker packs of up to 60, still and animated apart, leftovers individually', async () => {
   const h = setup();
-  for (let i = 0; i < 62; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `p${i}` })));
+  for (let i = 0; i < 122; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `p${i}` })));
   for (let i = 0; i < 4; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `a${i}`, animated: true })));
   const first = await h.command('send');
-  assert.match(first.text, /sendingPacks.*"count":66.*"packs":3/);
+  assert.match(first.text, /sendingPacks.*"count":126.*"packs":3/);
   assert.equal(first.pluginActions.length, 1);
   const [pack] = first.pluginActions;
   assert.equal(pack.type, 'message.sendStickerPack');
   assert.equal(pack.chatId, 'alice@lid');
-  assert.equal(pack.pack.stickers.length, 30);
+  assert.equal(pack.pack.stickers.length, 60);
   assert.match(pack.pack.id, /^[0-9a-f-]{36}-1$/);
   assert.match(pack.pack.name, /packName.*2026-11-01.*\(1\/3\)$/);
   assert.equal(pack.pack.publisher, 'Sticker Thief');
@@ -350,13 +350,13 @@ test('delivers as sticker packs of up to 30, still and animated apart, leftovers
   assert.equal(job.runAt.getTime() - Date.parse('2026-11-01T12:00:00.000Z'), 15_000);
   const batches = await drainDeliveries(h);
   const shape = batches.map(b => b.map(a => a.type === 'message.sendStickerPack' ? `pack:${a.pack.stickers.length}` : 'single').join(','));
-  // 62 still -> 30 + 30 + 2 left over; 4 animated -> one pack of 4; the 2 leftovers go individually.
-  assert.deepEqual(shape, ['pack:30', 'pack:4', 'single,single']);
+  // 122 still -> 60 + 60 + 2 left over; 4 animated -> one pack of 4; the 2 leftovers go individually.
+  assert.deepEqual(shape, ['pack:60', 'pack:4', 'single,single']);
   const animatedPack = batches[1][0];
   const animatedShas = new Set(h.db.all('SELECT sha256 FROM stickers WHERE animated = 1').map(r => r.sha256.slice(0, 16)));
   assert.ok(animatedPack.pack.stickers.every(s => animatedShas.has(s.file.filename.slice(0, 16))), 'animated pack holds only animated stickers');
   assert.match(animatedPack.pack.name, /\(3\/3\)$/);
-  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 66);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 126);
 });
 
 test('a single small pack is not numbered and two stickers go out individually', async () => {
