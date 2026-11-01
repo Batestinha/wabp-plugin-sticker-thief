@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "official.sticker-thief",
+  "name": "Sticker Thief",
+  "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
+  "kind": "managed_group",
+  "version": "0.1.0",
+  "coreApiRange": "^0.3.15",
+  "entrypoint": "dist/index.js",
+  "messageNamespace": "official.sticker-thief",
+  "descriptionKey": "official.sticker-thief.description",
+  "commands": [
+    "/stickers subscribe",
+    "/stickers unsubscribe",
+    "/stickers status",
+    "/stickers send",
+    "/stickers random",
+    "/stickers forget"
+  ],
+  "help": {
+    "featureId": "stickers",
+    "titleKey": "official.sticker-thief.help.feature.title",
+    "summaryKey": "official.sticker-thief.help.feature.summary",
+    "order": 90,
+    "aliases": [
+      "sticker",
+      "sticker thief"
+    ],
+    "topics": [
+      {
+        "topicId": "subscribe-stickers",
+        "titleKey": "official.sticker-thief.help.subscribe.title",
+        "summaryKey": "official.sticker-thief.help.subscribe.summary",
+        "order": 10,
+        "commands": [
+          "/stickers subscribe",
+          "/stickers unsubscribe",
+          "/stickers status"
+        ],
+        "instructionKeys": [
+          "official.sticker-thief.help.subscribe.instruction"
+        ],
+        "exampleKeys": [
+          "official.sticker-thief.help.subscribe.example"
+        ],
+        "keywords": [
+          "subscribe",
+          "digest",
+          "daily",
+          "weekly"
+        ],
+        "availability": {
+          "invocation": "either",
+          "requiresCurrentManagedGroupMembership": true,
+          "currentManagedGroupMembershipMode": "effective_scope"
+        }
+      },
+      {
+        "topicId": "get-stickers",
+        "titleKey": "official.sticker-thief.help.get.title",
+        "summaryKey": "official.sticker-thief.help.get.summary",
+        "order": 20,
+        "commands": [
+          "/stickers send",
+          "/stickers random"
+        ],
+        "instructionKeys": [
+          "official.sticker-thief.help.get.instruction"
+        ],
+        "exampleKeys": [
+          "official.sticker-thief.help.send.example",
+          "official.sticker-thief.help.random.example"
+        ],
+        "keywords": [
+          "send",
+          "random",
+          "get"
+        ],
+        "availability": {
+          "invocation": "either",
+          "requiresCurrentManagedGroupMembership": true,
+          "currentManagedGroupMembershipMode": "effective_scope"
+        }
+      },
+      {
+        "topicId": "manage-stickers",
+        "titleKey": "official.sticker-thief.help.manage.title",
+        "summaryKey": "official.sticker-thief.help.manage.summary",
+        "order": 30,
+        "commands": [
+          "/stickers forget"
+        ],
+        "instructionKeys": [
+          "official.sticker-thief.help.manage.instruction"
+        ],
+        "exampleKeys": [
+          "official.sticker-thief.help.forget.example"
+        ],
+        "keywords": [
+          "forget",
+          "remove",
+          "delete"
+        ],
+        "availability": {
+          "invocation": "either",
+          "permission": "sticker-thief.manage"
+        }
+      }
+    ]
+  },
+  "eventSubscriptions": [
+    "message",
+    "plugin.job"
+  ],
+  "requiredPermissions": [
+    "sticker-thief.manage"
+  ],
+  "requiredBotCapabilities": [],
+  "dangerousActions": [],
+  "backgroundJobs": [
+    "sticker-thief.digest"
+  ],
+  "databases": [
+    {
+      "name": "stickers",
+      "engine": "sqlite",
+      "scope": "account",
+      "migrations": "migrations/stickers"
+    }
+  ],
+  "dataVersion": "1",
+  "cancellation": {
+    "workflows": []
+  },
+  "dependencies": [],
+  "assistant": {
+    "summary": "Collects new stickers shared in managed groups and sends them privately to members, on a subscription or on request.",
+    "useCases": [
+      "Subscribe a member to daily or weekly private sticker digests.",
+      "Send a member the stickers they have not received yet, or a random selection.",
+      "Report how many stickers have been collected and what is waiting for the member."
+    ],
+    "prerequisites": [
+      "enabled=true in the target scope.",
+      "The scope must be in ASSIST or MANAGE mode for stickers to be sent."
+    ],
+    "limitations": [
+      "Only WebP stickers are collected; Lottie stickers are skipped.",
+      "Members only receive stickers collected in groups of the same scope."
+    ],
+    "workflows": [
+      {
+        "intent": "sticker_subscribe",
+        "description": "Start or stop private sticker digests.",
+        "commands": [
+          "/stickers subscribe",
+          "/stickers unsubscribe"
+        ]
+      },
+      {
+        "intent": "sticker_send",
+        "description": "Send stickers to the member now.",
+        "commands": [
+          "/stickers send",
+          "/stickers random"
+        ]
+      },
+      {
+        "intent": "sticker_status",
+        "description": "Show collection size and subscription state.",
+        "commands": [
+          "/stickers status"
+        ]
+      }
+    ]
+  },
+  "operatorConsole": {
+    "configPaths": [
+      "enabled",
+      "collect",
+      "includeAnimated",
+      "maxStickerBytes",
+      "digestSize",
+      "manualSendLimit",
+      "defaultCadence"
+    ],
+    "controls": [
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.enabled",
+        "path": "enabled",
+        "label": "Enabled",
+        "description": "Turn Sticker Thief on for this scope.",
+        "section": "Sticker Thief",
+        "order": 10,
+        "schema": {
+          "type": "boolean"
+        },
+        "ui": {
+          "widget": "toggle",
+          "helpText": "Turn Sticker Thief on for this scope."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.collect",
+        "path": "collect",
+        "label": "Collect new stickers",
+        "description": "Save new stickers shared in this scope's groups.",
+        "section": "Sticker Thief",
+        "order": 20,
+        "schema": {
+          "type": "boolean"
+        },
+        "ui": {
+          "widget": "toggle",
+          "helpText": "Save new stickers shared in this scope's groups."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.includeAnimated",
+        "path": "includeAnimated",
+        "label": "Include animated stickers",
+        "description": "Send animated stickers as well as still ones.",
+        "section": "Sticker Thief",
+        "order": 30,
+        "schema": {
+          "type": "boolean"
+        },
+        "ui": {
+          "widget": "toggle",
+          "helpText": "Send animated stickers as well as still ones."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.maxStickerBytes",
+        "path": "maxStickerBytes",
+        "label": "Maximum sticker size",
+        "description": "Stickers larger than this are not collected.",
+        "section": "Sticker Thief",
+        "order": 40,
+        "schema": {
+          "type": "number",
+          "unit": "bytes",
+          "min": 1024,
+          "max": 5242880
+        },
+        "ui": {
+          "widget": "number",
+          "helpText": "Stickers larger than this are not collected."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.digestSize",
+        "path": "digestSize",
+        "label": "Stickers per digest",
+        "description": "Most stickers sent in one scheduled digest.",
+        "section": "Sticker Thief",
+        "order": 50,
+        "schema": {
+          "type": "number",
+          "min": 1,
+          "max": 30
+        },
+        "ui": {
+          "widget": "number",
+          "helpText": "Most stickers sent in one scheduled digest."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.manualSendLimit",
+        "path": "manualSendLimit",
+        "label": "Stickers per request",
+        "description": "Most stickers sent for one /stickers send or /stickers random.",
+        "section": "Sticker Thief",
+        "order": 60,
+        "schema": {
+          "type": "number",
+          "min": 1,
+          "max": 30
+        },
+        "ui": {
+          "widget": "number",
+          "helpText": "Most stickers sent for one /stickers send or /stickers random."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.defaultCadence",
+        "path": "defaultCadence",
+        "label": "Default cadence",
+        "description": "Digest cadence used when a member subscribes without choosing one.",
+        "section": "Sticker Thief",
+        "order": 70,
+        "schema": {
+          "type": "enum",
+          "enum": [
+            {
+              "value": "daily",
+              "label": "Daily"
+            },
+            {
+              "value": "weekly",
+              "label": "Weekly"
+            }
+          ]
+        },
+        "ui": {
+          "widget": "segmented",
+          "helpText": "Digest cadence used when a member subscribes without choosing one."
+        }
+      }
+    ],
+    "internalConfigPaths": []
+  }
+}

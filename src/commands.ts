@@ -1,0 +1,175 @@
+import type { CommandContext, CommandResult } from '@wabs/plugin-sdk/commands';
+import { requireScopeId } from '@wabs/plugin-sdk/commands';
+import type { CommandMetadata, CommandTargetSpec } from '@wabs/plugin-sdk/command-metadata';
+import type { ManagedGroupCommandContext } from '@wabs/plugin-sdk/managed-group-plugin';
+import {
+  isCadence,
+  STICKER_THIEF_MANAGE_PERMISSION,
+  STICKER_THIEF_NAMESPACE as ns,
+  STICKER_THIEF_PLUGIN_ID
+} from './constants';
+import { configFor, nowFrom, planDelivery, scheduleDigest, stanzaIdOf, stickerDatabase, type StickerThiefDeps } from './service';
+import { deleteSubscription, forgetStickerBySighting, getSubscription, scopeStats, upsertSubscription } from './store';
+
+const CHAT_FLAG_TARGET: CommandTargetSpec = { kind: 'group', name: 'chat', flag: 'chat' };
+const SCOPE_TARGET: CommandTargetSpec = { kind: 'scope', flag: ['scope', 'scope-id'], fallback: 'current_scope' };
+
+type TopicId = 'subscribe-stickers' | 'get-stickers' | 'manage-stickers';
+
+function stickerCommand(input: {
+  subcommand: string;
+  topicId: TopicId;
+  mutation: CommandMetadata['mutation'];
+  permission?: string | undefined;
+  exampleKey: string;
+}): CommandMetadata {
+  return {
+    plane: 'group_operation',
+    interaction: 'either_same_chat',
+    pluginId: STICKER_THIEF_PLUGIN_ID,
+    requiresManagedGroup: true,
+    requiresCurrentManagedGroupMembership: true,
+    currentManagedGroupMembershipMode: 'effective_scope',
+    ...(input.permission ? { permission: input.permission } : {}),
+    privateManagedTarget: { mode: 'infer_group_or_community', explicitTargetName: 'chat', collapseCommunities: true },
+    targets: [CHAT_FLAG_TARGET, SCOPE_TARGET],
+    mutation: input.mutation,
+    auditAction: `sticker-thief.${input.subcommand}`,
+    help: {
+      familyKey: `${ns}.help.family`,
+      featureId: 'stickers',
+      topicId: input.topicId,
+      descriptionKey: `${ns}.help.cmd.${input.subcommand}`,
+      usage: `/stickers ${input.subcommand}`,
+      exampleKeys: [input.exampleKey]
+    }
+  };
+}
+
+interface Invocation {
+  scopeId: string;
+  identityId: string;
+  deliveryChatId: string;
+}
+
+function invocation(ctx: CommandContext): Invocation {
+  const address = ctx.actor?.identityAddress;
+  if (!address?.identityId) throw new Error('Authoritative actor identity is unavailable.');
+  return { scopeId: requireScopeId(ctx), identityId: address.identityId, deliveryChatId: address.deliveryChatId };
+}
+
+function args(ctx: CommandContext): string[] {
+  return ctx.remainingArgs ?? ctx.command.args;
+}
+
+function reply(text: string, extra: Partial<CommandResult> = {}): CommandResult {
+  return { handled: true, text, ...extra };
+}
+
+function parseCount(raw: string | undefined, max: number): number {
+  const value = raw ? Number.parseInt(raw, 10) : max;
+  return Number.isFinite(value) && value > 0 ? Math.min(value, max) : max;
+}
+
+export function registerStickerThiefCommands(context: ManagedGroupCommandContext): void {
+  const deps: StickerThiefDeps = context;
+  const router = context.router;
+
+  router.register('stickers', 'subscribe', stickerCommand({
+    subcommand: 'subscribe', topicId: 'subscribe-stickers', mutation: 'durable', exampleKey: `${ns}.help.subscribe.example`
+  }), async (ctx) => {
+    const call = invocation(ctx);
+    const config = await configFor(deps, call.scopeId, call.identityId);
+    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
+    const requested = args(ctx)[0]?.toLowerCase();
+    if (requested && !isCadence(requested)) return reply(ctx.t(`${ns}.subscribeUsage`));
+    const db = stickerDatabase(deps);
+    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    const cadence = requested && isCadence(requested) ? requested : config.defaultCadence;
+    const subscription = upsertSubscription(db, call.scopeId, call.identityId, cadence, nowFrom(deps));
+    await scheduleDigest(deps, subscription);
+    const stats = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
+    return reply(ctx.t(`${ns}.subscribed`, {
+      cadence: ctx.t(`${ns}.cadence.${cadence}`),
+      count: config.digestSize,
+      available: stats.unseen
+    }));
+  });
+
+  router.register('stickers', 'unsubscribe', stickerCommand({
+    subcommand: 'unsubscribe', topicId: 'subscribe-stickers', mutation: 'durable', exampleKey: `${ns}.help.subscribe.example`
+  }), async (ctx) => {
+    const call = invocation(ctx);
+    const db = stickerDatabase(deps);
+    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    return reply(ctx.t(deleteSubscription(db, call.scopeId, call.identityId) ? `${ns}.unsubscribed` : `${ns}.notSubscribed`));
+  });
+
+  router.register('stickers', 'status', stickerCommand({
+    subcommand: 'status', topicId: 'subscribe-stickers', mutation: 'none', exampleKey: `${ns}.help.subscribe.example`
+  }), async (ctx) => {
+    const call = invocation(ctx);
+    const config = await configFor(deps, call.scopeId, call.identityId);
+    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
+    const db = stickerDatabase(deps);
+    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    const stats = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
+    const subscription = getSubscription(db, call.scopeId, call.identityId);
+    return reply(ctx.t(`${ns}.status`, {
+      total: stats.total,
+      unseen: stats.unseen,
+      subscription: subscription
+        ? ctx.t(`${ns}.status.subscribed`, {
+            cadence: ctx.t(`${ns}.cadence.${subscription.cadence}`),
+            next: `${subscription.next_due_at.slice(0, 16).replace('T', ' ')} UTC`
+          })
+        : ctx.t(`${ns}.status.notSubscribed`)
+    }));
+  });
+
+  for (const [subcommand, order, exampleKey] of [
+    ['send', 'oldest-unseen', `${ns}.help.send.example`],
+    ['random', 'random', `${ns}.help.random.example`]
+  ] as const) {
+    router.register('stickers', subcommand, stickerCommand({
+      subcommand, topicId: 'get-stickers', mutation: 'durable', exampleKey
+    }), async (ctx) => {
+      const call = invocation(ctx);
+      const config = await configFor(deps, call.scopeId, call.identityId);
+      if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
+      if (ctx.managementMode === 'OBSERVE') return reply(ctx.t(`${ns}.observeOnly`));
+      const db = stickerDatabase(deps);
+      if (!db || !deps.mediaStore) return reply(ctx.t(`${ns}.unavailable`));
+      const planned = await planDelivery(deps, db, {
+        scopeId: call.scopeId,
+        identityId: call.identityId,
+        chatId: call.deliveryChatId,
+        limit: parseCount(args(ctx)[0], config.manualSendLimit),
+        includeAnimated: config.includeAnimated,
+        order
+      });
+      if (!planned.actions.length) {
+        const { total } = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
+        return reply(ctx.t(total ? `${ns}.noNewStickers` : `${ns}.noStickers`, { total }));
+      }
+      return reply(ctx.t(`${ns}.sending`, { count: planned.actions.length }), { pluginActions: planned.actions });
+    });
+  }
+
+  router.register('stickers', 'forget', stickerCommand({
+    subcommand: 'forget', topicId: 'manage-stickers', mutation: 'durable',
+    permission: STICKER_THIEF_MANAGE_PERMISSION, exampleKey: `${ns}.help.forget.example`
+  }), async (ctx) => {
+    const call = invocation(ctx);
+    const quoted = ctx.message.replyTo?.messageId;
+    if (!quoted) return reply(ctx.t(`${ns}.forgetUsage`));
+    const db = stickerDatabase(deps);
+    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    const result = forgetStickerBySighting(db, call.scopeId, stanzaIdOf(quoted), call.identityId, nowFrom(deps));
+    if (result.kind === 'not-found') return reply(ctx.t(`${ns}.forgetNotFound`));
+    if (result.orphanMediaId) await deps.mediaStore?.delete(result.orphanMediaId);
+    return reply(ctx.t(`${ns}.forgotten`), {
+      pluginActions: [{ type: 'audit.record', action: 'sticker-thief.forget', targetJson: { scopeId: call.scopeId, sha256: result.sha256 } }]
+    });
+  });
+}

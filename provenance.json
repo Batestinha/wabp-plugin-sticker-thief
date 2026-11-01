@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "https://github.com/Batestinha/wabp-plugin-sticker-thief",
+  "sdk": {
+    "version": "0.3.27",
+    "path": "vendor/wabs-plugin-sdk-0.3.27-61bceb37cf4e.tgz",
+    "sha256": "61bceb37cf4ecaf05874188e1891c707324000e5ee73ddefa382c3c45fbfb8c9",
+    "sourceRepository": "https://github.com/Batestinha/wabp",
+    "sourceDirectory": "packages/plugin-sdk",
+    "sourceCommit": "174a4a88b0afd0f5bb26b357a3224d34e149cecc",
+    "sourceTreeSha": "bfe34589b8005f3dece3881934788f8111882a43",
+    "sourceBranch": "feat/sticker-thief-20261101"
+  }
+}
