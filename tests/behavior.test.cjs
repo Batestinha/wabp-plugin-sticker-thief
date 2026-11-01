@@ -382,21 +382,16 @@ test('digests arrive as packs after the header', async () => {
 
 // --- 0.4.0: pack rules and resend -----------------------------------------
 
-test('stickers outside WhatsApp pack rules are sent individually, never inside a pack', async () => {
+test('stickers outside WhatsApp pack rules still go in the pack (the host conforms them)', async () => {
   const h = setup();
   for (let i = 0; i < 4; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `ok${i}` })));
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'small', width: 240, height: 240 })));
-  const big = h.addSticker(webp({ salt: 'big' }));
-  await collectSticker(h.context, SCOPE, big);
-  h.db.run("UPDATE stickers SET size_bytes = ? WHERE sha256 = (SELECT s.sha256 FROM sticker_sightings ss JOIN stickers s ON s.id = ss.sticker_id WHERE ss.stanza_id = ?)",
-    150 * 1024, big.id.split('_')[2]);
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'big' })));
+  h.db.run('UPDATE stickers SET size_bytes = ? WHERE id = (SELECT max(id) FROM stickers)', 150 * 1024);
   const first = await h.command('send');
   assert.match(first.text, /sendingPacks.*"count":6.*"packs":1/);
-  assert.equal(first.pluginActions[0].pack.stickers.length, 4);
-  const rest = (await drainDeliveries(h)).flat();
-  assert.deepEqual(rest.map(a => a.type), ['message.sendSticker', 'message.sendSticker']);
-  const packed = new Set(first.pluginActions[0].pack.stickers.map(s => s.file.filename));
-  assert.ok(rest.every(a => !packed.has(a.file.filename)));
+  assert.equal(first.pluginActions[0].pack.stickers.length, 6);
+  assert.deepEqual(await drainDeliveries(h), []);
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 6);
 });
 

@@ -4,8 +4,8 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.5.0",
-  "coreApiRange": "^0.3.18",
+  "version": "0.6.0",
+  "coreApiRange": "^0.3.19",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -155,7 +155,7 @@
     "limitations": [
       "Only WebP stickers are collected; Lottie stickers are skipped.",
       "Deliveries arrive as native sticker packs of up to 60 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.",
-      "Stickers outside WhatsApp pack rules (512x512, at most 100 KB still or 500 KB animated) are always sent individually.",
+      "Stickers outside WhatsApp pack rules are resized and recompressed by the host (512x512, at most 100 KB still or 500 KB animated); animated ones may lose some frames.",
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
       "Members only receive stickers collected in groups of the same scope."
     ],
@@ -307,7 +307,7 @@
         "id": "plugin.official.sticker-thief.deliverAsPacks",
         "path": "deliverAsPacks",
         "label": "Send as sticker packs",
-        "description": "Deliver stickers as native WhatsApp sticker packs of up to 60 (leftovers of 1-2, and stickers outside the WhatsApp pack rules, are sent individually). Turn off to send every sticker individually.",
+        "description": "Deliver stickers as native WhatsApp sticker packs of up to 60 (stickers are resized to fit the WhatsApp pack rules; leftovers of 1-2 are sent individually). Turn off to send every sticker individually.",
         "section": "Sticker Thief",
         "order": 62,
         "schema": {
@@ -315,7 +315,7 @@
         },
         "ui": {
           "widget": "toggle",
-          "helpText": "Deliver stickers as native WhatsApp sticker packs of up to 60 (leftovers of 1-2, and stickers outside the WhatsApp pack rules, are sent individually). Turn off to send every sticker individually."
+          "helpText": "Deliver stickers as native WhatsApp sticker packs of up to 60 (stickers are resized to fit the WhatsApp pack rules; leftovers of 1-2 are sent individually). Turn off to send every sticker individually."
         }
       },
       {

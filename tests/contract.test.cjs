@@ -15,8 +15,8 @@ test('package metadata matches the executable manifest', () => {
     assert.deepEqual(plugin.manifest[key], metadata[key], key);
   }
   assert.equal(metadata.version, pkg.version);
-  // Sticker packs of up to 60 stickers need core API 0.3.18.
-  assert.equal(metadata.coreApiRange, '^0.3.18');
+  // Pack sticker conformance in the host needs core API 0.3.19.
+  assert.equal(metadata.coreApiRange, '^0.3.19');
 });
 
 test('every default message has a non-empty pt-PT translation and no extras', () => {

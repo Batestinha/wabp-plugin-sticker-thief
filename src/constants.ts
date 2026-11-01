@@ -1,7 +1,7 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.5.0';
-export const STICKER_THIEF_CORE_API_RANGE = '^0.3.18';
+export const STICKER_THIEF_VERSION = '0.6.0';
+export const STICKER_THIEF_CORE_API_RANGE = '^0.3.19';
 export const STICKER_THIEF_DATABASE = 'stickers';
 export const STICKER_THIEF_DIGEST_JOB = 'sticker-thief.digest';
 export const STICKER_THIEF_DELIVER_JOB = 'sticker-thief.deliver';
@@ -14,10 +14,6 @@ export const STICKER_PACK_MAX = 60;
 export const STICKER_PACK_MIN = 3;
 export const STICKER_PACK_SPACING_MS = 15_000;
 export const STICKER_PACK_PUBLISHER = 'Sticker Thief';
-/** WhatsApp's sticker pack rules; stickers outside them are delivered individually. */
-export const PACK_STICKER_DIMENSION = 512;
-export const PACK_MAX_STILL_BYTES = 100 * 1024;
-export const PACK_MAX_ANIMATED_BYTES = 500 * 1024;
 export const BACKFILL_PAGE_SIZE = 50;
 export const BACKFILL_PAGE_SPACING_MS = 5_000;
 export const STICKER_THIEF_MANAGE_PERMISSION = 'sticker-thief.manage';
