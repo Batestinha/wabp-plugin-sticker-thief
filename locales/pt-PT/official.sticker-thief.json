@@ -32,6 +32,8 @@
   "official.sticker-thief.unsubscribed": "Subscrição cancelada. Vou deixar de te enviar stickers.",
   "official.sticker-thief.notSubscribed": "Não tens nenhuma subscrição.",
   "official.sticker-thief.sending": "Vou enviar-te {count} sticker(s) em privado.",
+  "official.sticker-thief.sendingPacks": "Vou enviar-te {count} sticker(s) em privado, em {packs} pacote(s) de stickers. Toca num pacote para o adicionares ao WhatsApp.",
+  "official.sticker-thief.packName": "Ladrão de Stickers {date}",
   "official.sticker-thief.sendingBatched": "Vou enviar-te {count} stickers em privado, 10 de cada vez, mais ou menos a cada 30 segundos.",
   "official.sticker-thief.noNewStickers": "Não há stickers novos para ti neste momento. Já recolhi {total} até agora.",
   "official.sticker-thief.noStickers": "Ainda não recolhi nenhum sticker aqui.",

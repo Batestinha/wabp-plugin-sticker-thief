@@ -14,6 +14,10 @@ import {
   DELIVERY_BATCH_SIZE,
   DELIVERY_BATCH_SPACING_MS,
   STICKER_MIME_TYPE,
+  STICKER_PACK_MAX,
+  STICKER_PACK_MIN,
+  STICKER_PACK_PUBLISHER,
+  STICKER_PACK_SPACING_MS,
   STICKER_THIEF_BACKFILL_JOB,
   STICKER_THIEF_DATABASE,
   STICKER_THIEF_DELIVER_JOB,
@@ -128,8 +132,10 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
 }
 
 // ---------------------------------------------------------------------------
-// Delivery: no overall cap. Requests are split into batches of
-// DELIVERY_BATCH_SIZE; each further batch is a follow-up job.
+// Delivery: no overall cap. A request is planned up front into batches that
+// follow-up jobs send one at a time: native sticker packs (up to 30 stickers,
+// still and animated kept apart) or, for leftovers and when packs are off,
+// single stickers in groups of DELIVERY_BATCH_SIZE.
 // ---------------------------------------------------------------------------
 
 export interface DeliverySelection {
@@ -145,26 +151,85 @@ export function selectDeliveryIds(db: PluginDatabase, input: DeliverySelection):
   return selectStickers(db, input).map((row) => Number(row.id));
 }
 
+export interface DeliveryBatch {
+  pack: boolean;
+  ids: number[];
+}
+
 export interface DeliveryJobPayload {
   identityId: string;
   chatId: string;
   /** Unique per request; part of every idempotency key so retries dedupe but later requests always send. */
   deliveryId: string;
-  stickerIds: number[];
+  batches: DeliveryBatch[];
+  /** Shown as the pack name; numbered when a delivery has several packs. */
+  packName: string;
+  packCount: number;
+  /** Packs already sent in this delivery, used for pack ids and numbering. */
+  packsSent: number;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+/** Plans the whole delivery: packs per sticker kind, singles for small leftovers. */
+export function planDeliveryBatches(db: PluginDatabase, scopeId: string, stickerIds: number[], asPacks: boolean): DeliveryBatch[] {
+  if (!asPacks) return chunk(stickerIds, DELIVERY_BATCH_SIZE).map((ids) => ({ pack: false, ids }));
+  const rows = stickersByIds(db, scopeId, stickerIds);
+  const batches: DeliveryBatch[] = [];
+  const singles: number[] = [];
+  for (const animated of [0, 1]) {
+    const ids = rows.filter((row) => Number(row.animated) === animated).map((row) => Number(row.id));
+    for (const group of chunk(ids, STICKER_PACK_MAX)) {
+      if (group.length >= STICKER_PACK_MIN) batches.push({ pack: true, ids: group });
+      else singles.push(...group);
+    }
+  }
+  return [...batches, ...chunk(singles, DELIVERY_BATCH_SIZE).map((ids) => ({ pack: false, ids }))];
 }
 
 export function parseDeliveryPayload(payload: unknown): DeliveryJobPayload | undefined {
   if (!payload || typeof payload !== 'object') return undefined;
-  const { identityId, chatId, deliveryId, stickerIds } = payload as Record<string, unknown>;
-  return typeof identityId === 'string' && identityId && typeof chatId === 'string' && chatId
-    && typeof deliveryId === 'string' && deliveryId
-    && Array.isArray(stickerIds) && stickerIds.every((id) => Number.isSafeInteger(id))
-    ? { identityId, chatId, deliveryId, stickerIds: stickerIds as number[] }
+  const value = payload as Record<string, unknown>;
+  const batches = value['batches'];
+  const validBatches = Array.isArray(batches) && batches.every((batch) => batch && typeof batch === 'object'
+    && typeof (batch as DeliveryBatch).pack === 'boolean'
+    && Array.isArray((batch as DeliveryBatch).ids) && (batch as DeliveryBatch).ids.every((id) => Number.isSafeInteger(id)));
+  return typeof value['identityId'] === 'string' && value['identityId'] && typeof value['chatId'] === 'string' && value['chatId']
+    && typeof value['deliveryId'] === 'string' && value['deliveryId'] && validBatches
+    && typeof value['packName'] === 'string' && Number.isSafeInteger(value['packCount']) && Number.isSafeInteger(value['packsSent'])
+    ? value as unknown as DeliveryJobPayload
     : undefined;
 }
 
 export function newDeliveryId(): string {
   return randomUUID();
+}
+
+export interface DeliveryStart {
+  scopeId: string;
+  identityId: string;
+  chatId: string;
+  stickerIds: number[];
+  asPacks: boolean;
+  packName: string;
+}
+
+export function startDelivery(db: PluginDatabase, input: DeliveryStart): DeliveryJobPayload & { scopeId: string } {
+  const batches = planDeliveryBatches(db, input.scopeId, input.stickerIds, input.asPacks);
+  return {
+    scopeId: input.scopeId,
+    identityId: input.identityId,
+    chatId: input.chatId,
+    deliveryId: newDeliveryId(),
+    batches,
+    packName: input.packName,
+    packCount: batches.filter((batch) => batch.pack).length,
+    packsSent: 0
+  };
 }
 
 /**
@@ -176,33 +241,56 @@ export async function deliverBatch(
   db: PluginDatabase,
   input: DeliveryJobPayload & { scopeId: string }
 ): Promise<PluginAction[]> {
-  const batchIds = input.stickerIds.slice(0, DELIVERY_BATCH_SIZE);
-  const rest = input.stickerIds.slice(DELIVERY_BATCH_SIZE);
-  const actions: PluginAction[] = [];
-  const sent: number[] = [];
-  for (const sticker of stickersByIds(db, input.scopeId, batchIds)) {
+  const [batch, ...rest] = input.batches;
+  if (!batch) return [];
+  const files: Array<{ id: number; sha256: string; buffer: Buffer }> = [];
+  for (const sticker of stickersByIds(db, input.scopeId, batch.ids)) {
     const stored = await deps.mediaStore?.read(sticker.media_id);
     if (!stored) {
       dropStickerEverywhere(db, sticker.id);
       continue;
     }
-    actions.push({
-      type: 'message.sendSticker',
-      chatId: input.chatId,
-      file: { filename: `${sticker.sha256.slice(0, 16)}.webp`, mimeType: STICKER_MIME_TYPE, buffer: stored.buffer },
-      idempotencyKey: `sticker-thief:${input.deliveryId}:${sticker.sha256}`
-    });
-    sent.push(Number(sticker.id));
+    files.push({ id: Number(sticker.id), sha256: sticker.sha256, buffer: stored.buffer });
   }
-  recordDeliveries(db, input.scopeId, input.identityId, sent, nowFrom(deps));
+  const file = (sticker: { sha256: string; buffer: Buffer }) =>
+    ({ filename: `${sticker.sha256.slice(0, 16)}.webp`, mimeType: STICKER_MIME_TYPE, buffer: sticker.buffer });
+  const actions: PluginAction[] = [];
+  let packsSent = input.packsSent;
+  if (batch.pack && files.length) {
+    packsSent += 1;
+    actions.push({
+      type: 'message.sendStickerPack',
+      chatId: input.chatId,
+      pack: {
+        id: `${input.deliveryId}-${packsSent}`,
+        name: input.packCount > 1 ? `${input.packName} (${packsSent}/${input.packCount})` : input.packName,
+        publisher: STICKER_PACK_PUBLISHER,
+        stickers: files.map((sticker) => ({ file: file(sticker) }))
+      },
+      idempotencyKey: `sticker-thief:${input.deliveryId}:pack:${packsSent}`
+    });
+  } else {
+    for (const sticker of files) {
+      actions.push({
+        type: 'message.sendSticker',
+        chatId: input.chatId,
+        file: file(sticker),
+        idempotencyKey: `sticker-thief:${input.deliveryId}:${sticker.sha256}`
+      });
+    }
+  }
+  recordDeliveries(db, input.scopeId, input.identityId, files.map((sticker) => sticker.id), nowFrom(deps));
   if (rest.length) {
-    const payload: DeliveryJobPayload = { identityId: input.identityId, chatId: input.chatId, deliveryId: input.deliveryId, stickerIds: rest };
+    const payload: DeliveryJobPayload = {
+      identityId: input.identityId, chatId: input.chatId, deliveryId: input.deliveryId, batches: rest,
+      packName: input.packName, packCount: input.packCount, packsSent
+    };
     await enqueue(deps, {
       jobName: STICKER_THIEF_DELIVER_JOB,
       executionClass: 'maintenance',
       scopeId: input.scopeId,
       payload,
-      runAt: new Date(nowFrom(deps).getTime() + DELIVERY_BATCH_SPACING_MS),
+      runAt: new Date(nowFrom(deps).getTime() + (batch.pack ? STICKER_PACK_SPACING_MS : DELIVERY_BATCH_SPACING_MS)),
       dedupeKey: `sticker-thief:deliver:${input.deliveryId}:${rest.length}`
     });
   }

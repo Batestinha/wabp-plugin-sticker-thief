@@ -13,7 +13,6 @@ import {
   collectSticker,
   configFor,
   deliverBatch,
-  newDeliveryId,
   nowFrom,
   parseDeliveryPayload,
   parseDigestPayload,
@@ -21,6 +20,7 @@ import {
   scheduleDigest,
   selectDeliveryIds,
   startBackfill,
+  startDelivery,
   stickerDatabase,
   type StickerThiefDeps
 } from './service';
@@ -75,6 +75,11 @@ export async function runDeliveryBatch(context: StickerThiefHookContext, job: Pl
   return deliverBatch(context, db, { ...payload, scopeId: job.scopeId });
 }
 
+function packName(t: TranslateFn | undefined, now: Date): string {
+  const date = now.toISOString().slice(0, 10);
+  return t?.(`${STICKER_THIEF_NAMESPACE}.packName`, { date }) ?? `Sticker Thief ${date}`;
+}
+
 export async function runDigest(context: StickerThiefHookContext, job: PluginJobEvent): Promise<PluginAction[] | void> {
   const payload = parseDigestPayload(job.payload);
   const db = stickerDatabase(context);
@@ -107,12 +112,12 @@ export async function runDigest(context: StickerThiefHookContext, job: PluginJob
   });
   if (!stickerIds.length) return;
   const address = await context.resolveStableIdentityById(payload.identityId);
-  const deliveryId = newDeliveryId();
-  const actions = await deliverBatch(context, db, {
-    scopeId: job.scopeId, identityId: payload.identityId, chatId: address.deliveryChatId, deliveryId, stickerIds
-  });
-  if (!actions.length) return;
   const t = await context.i18n?.translatorForIdentity?.(payload.identityId, job.scopeId);
+  const actions = await deliverBatch(context, db, startDelivery(db, {
+    scopeId: job.scopeId, identityId: payload.identityId, chatId: address.deliveryChatId, stickerIds,
+    asPacks: config.deliverAsPacks, packName: packName(t, now)
+  }));
+  if (!actions.length) return;
   const header = t?.(`${STICKER_THIEF_NAMESPACE}.digestHeader`, { count: stickerIds.length });
   return [
     ...(header ? [{

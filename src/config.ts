@@ -10,6 +10,8 @@ export const stickerThiefConfigSchema = z.object({
   /** 0 sends every matching sticker when no number is given. */
   manualSendLimit: z.number().int().min(0).max(100_000).default(0),
   backfillArchive: z.boolean().default(true),
+  /** Send deliveries as native WhatsApp sticker packs (falls back to single stickers when off). */
+  deliverAsPacks: z.boolean().default(true),
   defaultCadence: z.enum(['daily', 'weekly']).default('daily')
 }).default({});
 

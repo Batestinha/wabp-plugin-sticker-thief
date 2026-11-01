@@ -36,6 +36,8 @@ export const stickerThiefMessages: MessageCatalog = {
   [`${ns}.unsubscribed`]: 'Unsubscribed. I will stop sending you stickers.',
   [`${ns}.notSubscribed`]: 'You are not subscribed.',
   [`${ns}.sending`]: 'Sending you {count} sticker(s) privately.',
+  [`${ns}.sendingPacks`]: 'Sending you {count} sticker(s) privately as {packs} sticker pack(s). Tap a pack to add it to WhatsApp.',
+  [`${ns}.packName`]: 'Sticker Thief {date}',
   [`${ns}.sendingBatched`]: 'Sending you {count} stickers privately, 10 at a time about every 30 seconds.',
   [`${ns}.noNewStickers`]: 'No new stickers for you right now. I have collected {total} so far.',
   [`${ns}.noStickers`]: 'I have not collected any stickers here yet.',

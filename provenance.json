@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/Batestinha/wabp-plugin-sticker-thief",
   "sdk": {
-    "version": "0.3.28",
-    "path": "vendor/wabs-plugin-sdk-0.3.28-a1c91b14aa1a.tgz",
-    "sha256": "a1c91b14aa1aab603d2b60bd52547d7bf4d85a2589468c6505315867c421c804",
+    "version": "0.3.29",
+    "path": "vendor/wabs-plugin-sdk-0.3.29-98b5ce804750.tgz",
+    "sha256": "98b5ce80475073b3aaa874ad334950c191bfc43abb64df87f0705c033483dfe5",
     "sourceRepository": "https://github.com/Batestinha/wabp",
     "sourceDirectory": "packages/plugin-sdk",
-    "sourceCommit": "f3209cc4d14b1cacdf9742abd84966615eb820ba",
-    "sourceTreeSha": "4d5cd56a087c2891920ac0a7d432233ea4af8471",
-    "sourceBranch": "feat/sticker-archive-backfill-20261101"
+    "sourceCommit": "cfb0895ddbdeda6c4782df6d74712aa6c4c96a3f",
+    "sourceTreeSha": "748385b9eda289a1f374de19a857923d46c0c208",
+    "sourceBranch": "feat/sticker-pack-20261101"
   }
 }

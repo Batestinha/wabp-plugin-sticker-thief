@@ -4,8 +4,8 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.2.0",
-  "coreApiRange": "^0.3.16",
+  "version": "0.3.0",
+  "coreApiRange": "^0.3.17",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -148,7 +148,7 @@
     ],
     "limitations": [
       "Only WebP stickers are collected; Lottie stickers are skipped.",
-      "Large deliveries are sent 10 stickers at a time about every 30 seconds.",
+      "Deliveries arrive as native sticker packs of up to 30 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.",
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
       "Members only receive stickers collected in groups of the same scope."
     ],
@@ -187,6 +187,7 @@
       "digestSize",
       "manualSendLimit",
       "backfillArchive",
+      "deliverAsPacks",
       "defaultCadence"
     ],
     "controls": [
@@ -291,6 +292,22 @@
         "ui": {
           "widget": "number",
           "helpText": "Stickers sent for /stickers send or /stickers random without a number; 0 sends all of them."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.deliverAsPacks",
+        "path": "deliverAsPacks",
+        "label": "Send as sticker packs",
+        "description": "Deliver stickers as native WhatsApp sticker packs of up to 30 (leftovers of 1-2 are sent individually). Turn off to send every sticker individually.",
+        "section": "Sticker Thief",
+        "order": 62,
+        "schema": {
+          "type": "boolean"
+        },
+        "ui": {
+          "widget": "toggle",
+          "helpText": "Deliver stickers as native WhatsApp sticker packs of up to 30 (leftovers of 1-2 are sent individually). Turn off to send every sticker individually."
         }
       },
       {

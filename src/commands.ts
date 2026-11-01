@@ -8,7 +8,7 @@ import {
   STICKER_THIEF_NAMESPACE as ns,
   STICKER_THIEF_PLUGIN_ID
 } from './constants';
-import { configFor, deliverBatch, newDeliveryId, nowFrom, scheduleDigest, selectDeliveryIds, stanzaIdOf, startBackfill, stickerDatabase, type StickerThiefDeps } from './service';
+import { configFor, deliverBatch, nowFrom, scheduleDigest, selectDeliveryIds, stanzaIdOf, startBackfill, startDelivery, stickerDatabase, type StickerThiefDeps } from './service';
 import { backfillImported, deleteSubscription, forgetStickerBySighting, getSubscription, scopeStats, upsertSubscription } from './store';
 
 const CHAT_FLAG_TARGET: CommandTargetSpec = { kind: 'group', name: 'chat', flag: 'chat' };
@@ -149,17 +149,20 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
         includeAnimated: config.includeAnimated,
         order
       });
-      const actions = stickerIds.length
-        ? await deliverBatch(deps, db, {
-            scopeId: call.scopeId, identityId: call.identityId, chatId: call.deliveryChatId, deliveryId: newDeliveryId(), stickerIds
+      const delivery = stickerIds.length
+        ? startDelivery(db, {
+            scopeId: call.scopeId, identityId: call.identityId, chatId: call.deliveryChatId, stickerIds,
+            asPacks: config.deliverAsPacks,
+            packName: ctx.t(`${ns}.packName`, { date: nowFrom(deps).toISOString().slice(0, 10) })
           })
-        : [];
-      if (!actions.length) {
+        : undefined;
+      const actions = delivery ? await deliverBatch(deps, db, delivery) : [];
+      if (!delivery || !actions.length) {
         const { total } = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
         return reply(ctx.t(total ? `${ns}.noNewStickers` : `${ns}.noStickers`, { total }));
       }
-      return reply(ctx.t(stickerIds.length > actions.length ? `${ns}.sendingBatched` : `${ns}.sending`, { count: stickerIds.length }),
-        { pluginActions: actions });
+      const key = delivery.packCount ? `${ns}.sendingPacks` : delivery.batches.length > 1 ? `${ns}.sendingBatched` : `${ns}.sending`;
+      return reply(ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }), { pluginActions: actions });
     });
   }
 
