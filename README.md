@@ -47,8 +47,10 @@ than one); add `--chat <name>` to pick one directly.
 | `collect` | `true` | Save new stickers. |
 | `includeAnimated` | `true` | Also send animated stickers. |
 | `maxStickerBytes` | `1048576` | Larger stickers are not collected. |
-| `digestSize` | `10` | Most stickers per digest (1–30). |
-| `manualSendLimit` | `10` | Most stickers per `send`/`random` (1–30). |
+| `digestSize` | `0` | Most stickers per digest; `0` sends every new sticker. |
+| `manualSendLimit` | `0` | Stickers per `send`/`random` without a number; `0` sends all of them. |
+| `deliverAsPacks` | `true` | Send deliveries as native sticker packs of up to 60. |
+| `backfillArchive` | `true` | Also import stickers already stored in the chat archive. |
 | `favoriteOnBotAccount` | `true` | Add collected stickers to the bot account's favourite stickers. |
 | `defaultCadence` | `daily` | Cadence when `subscribe` has no argument. |
 
