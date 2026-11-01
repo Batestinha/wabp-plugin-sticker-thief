@@ -4,8 +4,8 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.1.0",
-  "coreApiRange": "^0.3.15",
+  "version": "0.2.0",
+  "coreApiRange": "^0.3.16",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -118,7 +118,9 @@
   "requiredBotCapabilities": [],
   "dangerousActions": [],
   "backgroundJobs": [
-    "sticker-thief.digest"
+    "sticker-thief.digest",
+    "sticker-thief.deliver",
+    "sticker-thief.backfill"
   ],
   "databases": [
     {
@@ -128,13 +130,13 @@
       "migrations": "migrations/stickers"
     }
   ],
-  "dataVersion": "1",
+  "dataVersion": "2",
   "cancellation": {
     "workflows": []
   },
   "dependencies": [],
   "assistant": {
-    "summary": "Collects new stickers shared in managed groups and sends them privately to members, on a subscription or on request.",
+    "summary": "Collects stickers shared in managed groups, including those already in the chat archive, and sends them privately to members, on a subscription or on request.",
     "useCases": [
       "Subscribe a member to daily or weekly private sticker digests.",
       "Send a member the stickers they have not received yet, or a random selection.",
@@ -146,6 +148,8 @@
     ],
     "limitations": [
       "Only WebP stickers are collected; Lottie stickers are skipped.",
+      "Large deliveries are sent 10 stickers at a time about every 30 seconds.",
+      "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
       "Members only receive stickers collected in groups of the same scope."
     ],
     "workflows": [
@@ -182,6 +186,7 @@
       "maxStickerBytes",
       "digestSize",
       "manualSendLimit",
+      "backfillArchive",
       "defaultCadence"
     ],
     "controls": [
@@ -257,17 +262,17 @@
         "id": "plugin.official.sticker-thief.digestSize",
         "path": "digestSize",
         "label": "Stickers per digest",
-        "description": "Most stickers sent in one scheduled digest.",
+        "description": "Most stickers sent in one scheduled digest; 0 sends every new sticker.",
         "section": "Sticker Thief",
         "order": 50,
         "schema": {
           "type": "number",
-          "min": 1,
-          "max": 30
+          "min": 0,
+          "max": 100000
         },
         "ui": {
           "widget": "number",
-          "helpText": "Most stickers sent in one scheduled digest."
+          "helpText": "Most stickers sent in one scheduled digest; 0 sends every new sticker."
         }
       },
       {
@@ -275,17 +280,33 @@
         "id": "plugin.official.sticker-thief.manualSendLimit",
         "path": "manualSendLimit",
         "label": "Stickers per request",
-        "description": "Most stickers sent for one /stickers send or /stickers random.",
+        "description": "Stickers sent for /stickers send or /stickers random without a number; 0 sends all of them.",
         "section": "Sticker Thief",
         "order": 60,
         "schema": {
           "type": "number",
-          "min": 1,
-          "max": 30
+          "min": 0,
+          "max": 100000
         },
         "ui": {
           "widget": "number",
-          "helpText": "Most stickers sent for one /stickers send or /stickers random."
+          "helpText": "Stickers sent for /stickers send or /stickers random without a number; 0 sends all of them."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.backfillArchive",
+        "path": "backfillArchive",
+        "label": "Import from chat archive",
+        "description": "Also collect stickers already stored in this scope's chat archive.",
+        "section": "Sticker Thief",
+        "order": 65,
+        "schema": {
+          "type": "boolean"
+        },
+        "ui": {
+          "widget": "toggle",
+          "helpText": "Also collect stickers already stored in this scope's chat archive."
         }
       },
       {

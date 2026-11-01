@@ -1,19 +1,37 @@
+import { randomUUID } from 'node:crypto';
 import type { PluginAction } from '@wabs/plugin-sdk/actions';
+import type { PluginArchivedStickers } from '@wabs/plugin-sdk/chat-archive';
 import type { PluginDatabase, PluginDatabaseRegistry } from '@wabs/plugin-sdk/database';
+import type { PluginCoveredGroup } from '@wabs/plugin-sdk/hook-plugin';
 import type { PluginJobInput } from '@wabs/plugin-sdk/jobs';
-import type { PluginMediaStore } from '@wabs/plugin-sdk/media-store';
+import type { PluginMediaStore, PluginStagedMedia } from '@wabs/plugin-sdk/media-store';
 import type { NormalizedMessage } from '@wabs/plugin-sdk/transport';
 import { parseSerializedWhatsAppMessageId } from '@wabs/plugin-sdk/message-ids';
 import { parseStickerThiefConfig, type StickerThiefConfig } from './config';
-import { STICKER_MIME_TYPE, STICKER_THIEF_DATABASE, STICKER_THIEF_DIGEST_JOB } from './constants';
 import {
+  BACKFILL_PAGE_SIZE,
+  BACKFILL_PAGE_SPACING_MS,
+  DELIVERY_BATCH_SIZE,
+  DELIVERY_BATCH_SPACING_MS,
+  STICKER_MIME_TYPE,
+  STICKER_THIEF_BACKFILL_JOB,
+  STICKER_THIEF_DATABASE,
+  STICKER_THIEF_DELIVER_JOB,
+  STICKER_THIEF_DIGEST_JOB
+} from './constants';
+import {
+  advanceBackfillChat,
+  backfillChat,
+  completeBackfill,
   dropStickerEverywhere,
   isKnownSighting,
   recordDeliveries,
+  recordKnownSticker,
   recordSticker,
+  requestBackfill,
   selectStickers,
+  stickersByIds,
   type RecordStickerResult,
-  type StickerRow,
   type SubscriptionRow
 } from './store';
 import { parseWebPInfo } from './webp';
@@ -21,6 +39,8 @@ import { parseWebPInfo } from './webp';
 export interface StickerThiefDeps {
   databases?: PluginDatabaseRegistry | undefined;
   mediaStore?: PluginMediaStore | undefined;
+  archivedStickers?: PluginArchivedStickers | undefined;
+  coveredGroupsForScope?: ((scopeId: string) => Promise<PluginCoveredGroup[]>) | undefined;
   enqueuePluginJob?: ((input: PluginJobInput) => Promise<unknown>) | undefined;
   configFor?: ((scopeId: string, actorIdentityId?: string | undefined) => Promise<Record<string, unknown>>) | undefined;
   now?: (() => Date) | undefined;
@@ -43,9 +63,46 @@ export function stanzaIdOf(messageId: string): string {
   return parseSerializedWhatsAppMessageId(messageId)?.stanzaId ?? messageId;
 }
 
+function enqueue(deps: StickerThiefDeps, input: PluginJobInput): Promise<unknown> {
+  if (!deps.enqueuePluginJob) throw new Error('Sticker Thief needs host-bound job scheduling.');
+  return deps.enqueuePluginJob(input);
+}
+
+function isWebP(mimeType: string | undefined): boolean {
+  return mimeType?.split(';')[0]?.trim().toLowerCase() === STICKER_MIME_TYPE;
+}
+
 export type CollectOutcome =
   | { kind: 'skipped'; reason: string }
   | RecordStickerResult;
+
+/** Validates staged bytes as WebP and records them, deleting the staged copy when it is a duplicate or invalid. */
+async function recordStaged(
+  deps: StickerThiefDeps,
+  db: PluginDatabase,
+  input: { scopeId: string; stanzaId: string; media: PluginStagedMedia; seenAt: Date }
+): Promise<CollectOutcome> {
+  const stored = isWebP(input.media.mimeType) ? await deps.mediaStore?.read(input.media.id) : undefined;
+  const info = stored ? parseWebPInfo(stored.buffer) : undefined;
+  if (!info) {
+    await deps.mediaStore?.delete(input.media.id);
+    return { kind: 'skipped', reason: 'unsupported-sticker-format' };
+  }
+  const result = recordSticker(db, {
+    scopeId: input.scopeId,
+    stanzaId: input.stanzaId,
+    sha256: input.media.sha256,
+    mediaId: input.media.id,
+    mimeType: STICKER_MIME_TYPE,
+    sizeBytes: input.media.sizeBytes,
+    width: info.width,
+    height: info.height,
+    animated: info.animated,
+    seenAt: input.seenAt
+  });
+  if (result.kind !== 'new') await deps.mediaStore?.delete(result.duplicateMediaId);
+  return result;
+}
 
 /** Saves a newly seen group sticker. Never emits chat actions: collecting is silent. */
 export async function collectSticker(deps: StickerThiefDeps, scopeId: string, message: NormalizedMessage): Promise<CollectOutcome> {
@@ -55,9 +112,7 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
   const config = await configFor(deps, scopeId);
   if (!config.enabled || !config.collect) return { kind: 'skipped', reason: 'collection-disabled' };
   const declaredMime = message.media?.mimeType ?? message.mediaMimeType;
-  if (declaredMime && declaredMime.split(';')[0]?.trim().toLowerCase() !== STICKER_MIME_TYPE) {
-    return { kind: 'skipped', reason: 'unsupported-sticker-format' };
-  }
+  if (declaredMime && !isWebP(declaredMime)) return { kind: 'skipped', reason: 'unsupported-sticker-format' };
   if ((message.media?.sizeBytes ?? 0) > config.maxStickerBytes) return { kind: 'skipped', reason: 'too-large' };
   const db = stickerDatabase(deps);
   if (!db || !deps.mediaStore) return { kind: 'skipped', reason: 'storage-unavailable' };
@@ -69,48 +124,63 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
     maxBytes: config.maxStickerBytes
   });
   if (!staged.ok) return { kind: 'skipped', reason: staged.reason };
-  const media = staged.media;
-  const stored = media.mimeType.split(';')[0]?.trim().toLowerCase() === STICKER_MIME_TYPE
-    ? await deps.mediaStore.read(media.id)
-    : undefined;
-  const info = stored ? parseWebPInfo(stored.buffer) : undefined;
-  if (!info) {
-    await deps.mediaStore.delete(media.id);
-    return { kind: 'skipped', reason: 'unsupported-sticker-format' };
-  }
-  const result = recordSticker(db, {
-    scopeId,
-    stanzaId,
-    sha256: media.sha256,
-    mediaId: media.id,
-    mimeType: STICKER_MIME_TYPE,
-    sizeBytes: media.sizeBytes,
-    width: info.width,
-    height: info.height,
-    animated: info.animated,
-    seenAt: nowFrom(deps)
-  });
-  if (result.kind !== 'new') await deps.mediaStore.delete(result.duplicateMediaId);
-  return result;
+  return recordStaged(deps, db, { scopeId, stanzaId, media: staged.media, seenAt: nowFrom(deps) });
 }
 
-export interface PlannedDelivery {
-  actions: PluginAction[];
+// ---------------------------------------------------------------------------
+// Delivery: no overall cap. Requests are split into batches of
+// DELIVERY_BATCH_SIZE; each further batch is a follow-up job.
+// ---------------------------------------------------------------------------
+
+export interface DeliverySelection {
+  scopeId: string;
+  identityId: string;
+  /** 0 means no limit. */
+  limit: number;
+  includeAnimated: boolean;
+  order: 'oldest-unseen' | 'random';
+}
+
+export function selectDeliveryIds(db: PluginDatabase, input: DeliverySelection): number[] {
+  return selectStickers(db, input).map((row) => Number(row.id));
+}
+
+export interface DeliveryJobPayload {
+  identityId: string;
+  chatId: string;
+  /** Unique per request; part of every idempotency key so retries dedupe but later requests always send. */
+  deliveryId: string;
   stickerIds: number[];
 }
 
+export function parseDeliveryPayload(payload: unknown): DeliveryJobPayload | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const { identityId, chatId, deliveryId, stickerIds } = payload as Record<string, unknown>;
+  return typeof identityId === 'string' && identityId && typeof chatId === 'string' && chatId
+    && typeof deliveryId === 'string' && deliveryId
+    && Array.isArray(stickerIds) && stickerIds.every((id) => Number.isSafeInteger(id))
+    ? { identityId, chatId, deliveryId, stickerIds: stickerIds as number[] }
+    : undefined;
+}
+
+export function newDeliveryId(): string {
+  return randomUUID();
+}
+
 /**
- * Turns selected stickers into sticker-send actions, loading bytes from the
- * media store. Stickers whose file vanished are dropped from the collection.
+ * Sends the next batch of a delivery and queues the rest. Stickers whose file
+ * vanished are dropped from the collection instead of failing the send.
  */
-export async function stickerSendActions(
+export async function deliverBatch(
   deps: StickerThiefDeps,
   db: PluginDatabase,
-  input: { scopeId: string; identityId: string; chatId: string; stickers: StickerRow[] }
-): Promise<PlannedDelivery> {
+  input: DeliveryJobPayload & { scopeId: string }
+): Promise<PluginAction[]> {
+  const batchIds = input.stickerIds.slice(0, DELIVERY_BATCH_SIZE);
+  const rest = input.stickerIds.slice(DELIVERY_BATCH_SIZE);
   const actions: PluginAction[] = [];
-  const stickerIds: number[] = [];
-  for (const sticker of input.stickers) {
+  const sent: number[] = [];
+  for (const sticker of stickersByIds(db, input.scopeId, batchIds)) {
     const stored = await deps.mediaStore?.read(sticker.media_id);
     if (!stored) {
       dropStickerEverywhere(db, sticker.id);
@@ -120,28 +190,28 @@ export async function stickerSendActions(
       type: 'message.sendSticker',
       chatId: input.chatId,
       file: { filename: `${sticker.sha256.slice(0, 16)}.webp`, mimeType: STICKER_MIME_TYPE, buffer: stored.buffer },
-      idempotencyKey: `sticker-thief:${input.scopeId}:${input.identityId}:${sticker.sha256}`
+      idempotencyKey: `sticker-thief:${input.deliveryId}:${sticker.sha256}`
     });
-    stickerIds.push(sticker.id);
+    sent.push(Number(sticker.id));
   }
-  return { actions, stickerIds };
+  recordDeliveries(db, input.scopeId, input.identityId, sent, nowFrom(deps));
+  if (rest.length) {
+    const payload: DeliveryJobPayload = { identityId: input.identityId, chatId: input.chatId, deliveryId: input.deliveryId, stickerIds: rest };
+    await enqueue(deps, {
+      jobName: STICKER_THIEF_DELIVER_JOB,
+      executionClass: 'maintenance',
+      scopeId: input.scopeId,
+      payload,
+      runAt: new Date(nowFrom(deps).getTime() + DELIVERY_BATCH_SPACING_MS),
+      dedupeKey: `sticker-thief:deliver:${input.deliveryId}:${rest.length}`
+    });
+  }
+  return actions;
 }
 
-export interface DeliverInput {
-  scopeId: string;
-  identityId: string;
-  chatId: string;
-  limit: number;
-  includeAnimated: boolean;
-  order: 'oldest-unseen' | 'random';
-}
-
-export async function planDelivery(deps: StickerThiefDeps, db: PluginDatabase, input: DeliverInput): Promise<PlannedDelivery> {
-  const stickers = selectStickers(db, input);
-  const planned = await stickerSendActions(deps, db, { ...input, stickers });
-  recordDeliveries(db, input.scopeId, input.identityId, planned.stickerIds, nowFrom(deps));
-  return planned;
-}
+// ---------------------------------------------------------------------------
+// Digests
+// ---------------------------------------------------------------------------
 
 export interface DigestJobPayload {
   identityId: string;
@@ -162,11 +232,10 @@ export function parseDigestPayload(payload: unknown): DigestJobPayload | undefin
  * and a lost terminal job for the same slot is replaced.
  */
 export async function scheduleDigest(deps: StickerThiefDeps, subscription: Pick<SubscriptionRow, 'scope_id' | 'identity_id' | 'next_due_at'>): Promise<void> {
-  if (!deps.enqueuePluginJob) throw new Error('Sticker digests need host-bound job scheduling.');
   const payload: DigestJobPayload = { identityId: subscription.identity_id, dueAt: subscription.next_due_at };
   const due = new Date(subscription.next_due_at);
   const now = nowFrom(deps);
-  await deps.enqueuePluginJob({
+  await enqueue(deps, {
     jobName: STICKER_THIEF_DIGEST_JOB,
     executionClass: 'maintenance',
     scopeId: subscription.scope_id,
@@ -175,4 +244,81 @@ export async function scheduleDigest(deps: StickerThiefDeps, subscription: Pick<
     dedupeKey: `sticker-thief:digest:${subscription.scope_id}:${subscription.identity_id}:${due.getTime()}`,
     replaceRetainedTerminalJob: true
   });
+}
+
+// ---------------------------------------------------------------------------
+// Chat archive backfill: one archive page per job, per covered chat.
+// ---------------------------------------------------------------------------
+
+function backfillAllowed(deps: StickerThiefDeps, config: StickerThiefConfig): boolean {
+  return Boolean(deps.archivedStickers && config.enabled && config.collect && config.backfillArchive);
+}
+
+/**
+ * Starts (or, on restart, resumes) the scope's archive backfill. Chats already
+ * finished are skipped quickly, so re-running also picks up newly covered chats.
+ */
+export async function startBackfill(deps: StickerThiefDeps, scopeId: string, options: { onlyFirstTime?: boolean } = {}): Promise<boolean> {
+  const db = stickerDatabase(deps);
+  if (!db) return false;
+  if (options.onlyFirstTime && db.get('SELECT 1 AS hit FROM backfill_scopes WHERE scope_id = ?', scopeId)) return false;
+  if (!backfillAllowed(deps, await configFor(deps, scopeId))) return false;
+  const first = requestBackfill(db, scopeId, nowFrom(deps));
+  if (options.onlyFirstTime && !first) return false;
+  await enqueue(deps, {
+    jobName: STICKER_THIEF_BACKFILL_JOB,
+    executionClass: 'maintenance',
+    scopeId,
+    payload: {},
+    runAt: nowFrom(deps),
+    dedupeKey: `sticker-thief:backfill:${scopeId}:start`,
+    replaceRetainedTerminalJob: true
+  });
+  return true;
+}
+
+export type BackfillPageResult =
+  | { kind: 'skipped'; reason: string }
+  | { kind: 'page'; chatId: string; listed: number; imported: number; chatDone: boolean }
+  | { kind: 'done' };
+
+export async function runBackfillPage(deps: StickerThiefDeps, scopeId: string): Promise<BackfillPageResult> {
+  const config = await configFor(deps, scopeId);
+  const db = stickerDatabase(deps);
+  if (!db || !deps.archivedStickers || !deps.coveredGroupsForScope) return { kind: 'skipped', reason: 'archive-unavailable' };
+  if (!backfillAllowed(deps, config)) return { kind: 'skipped', reason: 'backfill-disabled' };
+  const chats = [...new Set((await deps.coveredGroupsForScope(scopeId)).map((group) => group.groupWid))].sort();
+  for (const chatId of chats) {
+    const progress = backfillChat(db, scopeId, chatId, nowFrom(deps));
+    if (progress.done) continue;
+    const items = await deps.archivedStickers.list({
+      scopeId, chatId, limit: BACKFILL_PAGE_SIZE,
+      ...(progress.after_media_id ? { afterMediaId: progress.after_media_id } : {})
+    });
+    let imported = 0;
+    for (const item of items) {
+      if (item.fromMe || !isWebP(item.mimeType) || (item.sizeBytes ?? 0) > config.maxStickerBytes) continue;
+      const stanzaId = stanzaIdOf(item.messageId);
+      if (isKnownSighting(db, scopeId, stanzaId)) continue;
+      if (item.sha256 && recordKnownSticker(db, { scopeId, stanzaId, sha256: item.sha256, seenAt: item.timestamp })) continue;
+      const staged = await deps.archivedStickers.stage({ scopeId, chatId, mediaId: item.mediaId, maxBytes: config.maxStickerBytes });
+      if (!staged.ok) continue;
+      const outcome = await recordStaged(deps, db, { scopeId, stanzaId, media: staged.media, seenAt: item.timestamp });
+      if (outcome.kind === 'new') imported += 1;
+    }
+    const chatDone = items.length < BACKFILL_PAGE_SIZE;
+    const last = items.at(-1)?.mediaId;
+    advanceBackfillChat(db, { scopeId, chatId, afterMediaId: last, done: chatDone, imported, now: nowFrom(deps) });
+    await enqueue(deps, {
+      jobName: STICKER_THIEF_BACKFILL_JOB,
+      executionClass: 'maintenance',
+      scopeId,
+      payload: {},
+      runAt: new Date(nowFrom(deps).getTime() + BACKFILL_PAGE_SPACING_MS),
+      dedupeKey: `sticker-thief:backfill:${scopeId}:${chatId}:${last ?? 'end'}`
+    });
+    return { kind: 'page', chatId, listed: items.length, imported, chatDone };
+  }
+  completeBackfill(db, scopeId, nowFrom(deps));
+  return { kind: 'done' };
 }

@@ -60,6 +60,14 @@ function mediaStore(filesByMessageId) {
       stored.set(media.id, { media, buffer: file.buffer });
       return { ok: true, media };
     },
+    async stageBuffer({ messageId, mimeType, buffer }, options = {}) {
+      const media = {
+        id: `media-${++next}`, pluginId: 'official.sticker-thief', messageId, filename: options.fallbackFilename ?? 'x',
+        mimeType, sizeBytes: buffer.length, sha256: crypto.createHash('sha256').update(buffer).digest('hex'), createdAt: new Date().toISOString()
+      };
+      stored.set(media.id, { media, buffer });
+      return { ok: true, media };
+    },
     async read(id) { return stored.get(id); },
     async delete(id) { stored.delete(id); }
   };
@@ -75,14 +83,41 @@ function stickerMessage(overrides = {}) {
   };
 }
 
-function harness({ config = {}, members } = {}) {
+/** In-memory chat archive: { [chatId]: [{ mediaId, messageId, buffer, fromMe, timestamp, mimeType, sha256 }] } */
+function archive(chats) {
+  const calls = { list: [], stage: [] };
+  return {
+    calls,
+    async list({ scopeId, chatId, afterMediaId, limit }) {
+      calls.list.push({ scopeId, chatId, afterMediaId, limit });
+      return (chats[chatId] ?? []).filter(i => !afterMediaId || i.mediaId > afterMediaId).slice(0, limit)
+        .map(({ buffer, ...item }) => ({ chatId, fromMe: false, mimeType: 'image/webp', sizeBytes: buffer.length, ...item }));
+    },
+    async stage({ chatId, mediaId }) { calls.stage.push(mediaId); return { ok: false, reason: 'not-found', message: 'unbound' }; },
+    bind(media) {
+      this.stage = async ({ chatId, mediaId }) => {
+        calls.stage.push(mediaId);
+        const item = (chats[chatId] ?? []).find(i => i.mediaId === mediaId);
+        if (!item) return { ok: false, reason: 'not-found', message: 'gone' };
+        return media.stageBuffer({ messageId: item.messageId, mimeType: item.mimeType ?? 'image/webp', buffer: item.buffer }, { fallbackFilename: 'sticker.webp' });
+      };
+      return this;
+    }
+  };
+}
+
+function harness({ config = {}, members, archiveChats, coveredChats } = {}) {
   const { db, registry } = openDatabase();
   const files = new Map();
   const media = mediaStore(files);
   const jobs = [];
   let clock = new Date('2026-11-01T12:00:00.000Z');
   const handlers = new Map();
+  const archived = archiveChats ? archive(archiveChats).bind(media) : undefined;
   const context = {
+    ...(archived ? { archivedStickers: archived } : {}),
+    coveredGroupsForScope: async scopeId => (coveredChats ?? Object.keys(archiveChats ?? {})).map(groupWid => ({ scopeId, groupId: groupWid, groupWid, managementMode: 'ASSIST' })),
+    listEnabledScopes: async () => [{ scopeId: 'scope-1', kind: 'group', name: 'Group' }],
     pluginId: 'official.sticker-thief',
     databases: registry,
     mediaStore: media,
@@ -95,7 +130,7 @@ function harness({ config = {}, members } = {}) {
     router: { register(namespace, sub, metadata, handler) { handlers.set(`${namespace} ${sub}`, { metadata, handler }); } }
   };
   return {
-    db, files, media, jobs, handlers, context,
+    db, files, media, jobs, handlers, context, archived,
     setNow(date) { clock = new Date(date); },
     addSticker(buffer, overrides = {}) {
       const message = stickerMessage(overrides);

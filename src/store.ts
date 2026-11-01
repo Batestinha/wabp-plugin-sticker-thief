@@ -58,7 +58,10 @@ export function recordSticker(db: PluginDatabase, input: NewSticker): RecordStic
     if (!sticker) throw new Error('Sticker row disappeared during insert.');
     db.run(
       `INSERT INTO sticker_scopes (scope_id, sticker_id, first_seen_at, last_seen_at, seen_count) VALUES (?, ?, ?, ?, 1)
-       ON CONFLICT (scope_id, sticker_id) DO UPDATE SET last_seen_at = excluded.last_seen_at, seen_count = seen_count + 1`,
+       ON CONFLICT (scope_id, sticker_id) DO UPDATE SET
+         first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
+         last_seen_at = MAX(last_seen_at, excluded.last_seen_at),
+         seen_count = seen_count + 1`,
       input.scopeId, sticker.id, seenAt, seenAt
     );
     db.run(
@@ -94,8 +97,86 @@ export function selectStickers(db: PluginDatabase, input: SelectStickersInput): 
           SELECT 1 FROM deliveries d WHERE d.scope_id = ss.scope_id AND d.identity_id = ? AND d.sticker_id = s.id))
       ORDER BY ${unseenOnly ? 'ss.first_seen_at, s.id' : 'random()'}
       LIMIT ?`,
-    input.scopeId, input.includeAnimated ? 1 : 0, unseenOnly ? 1 : 0, input.identityId, input.limit
+    input.scopeId, input.includeAnimated ? 1 : 0, unseenOnly ? 1 : 0, input.identityId, input.limit > 0 ? input.limit : -1
   );
+}
+
+/** Loads stickers still collected in the scope, in the order of the given ids. */
+export function stickersByIds(db: PluginDatabase, scopeId: string, ids: number[]): StickerRow[] {
+  const rows = new Map<number, StickerRow>();
+  for (let offset = 0; offset < ids.length; offset += 500) {
+    const chunk = ids.slice(offset, offset + 500);
+    for (const row of db.all<StickerRow & Record<string, unknown>>(
+      `SELECT s.id, s.sha256, s.media_id, s.mime_type, s.size_bytes, s.width, s.height, s.animated
+         FROM stickers s JOIN sticker_scopes ss ON ss.sticker_id = s.id AND ss.scope_id = ?
+        WHERE s.id IN (${chunk.map(() => '?').join(',')})`,
+      scopeId, ...chunk
+    )) rows.set(Number(row.id), row);
+  }
+  return ids.flatMap((id) => rows.get(id) ?? []);
+}
+
+/**
+ * Records a sighting of a sticker whose content hash is already collected,
+ * without touching media. Returns false when the hash is unknown or forgotten here.
+ */
+export function recordKnownSticker(db: PluginDatabase, input: { scopeId: string; stanzaId: string; sha256: string; seenAt: Date }): boolean {
+  return db.transaction(() => {
+    if (db.get('SELECT 1 AS hit FROM forgotten_stickers WHERE scope_id = ? AND sha256 = ?', input.scopeId, input.sha256)) return true;
+    const sticker = db.get<{ id: number }>('SELECT id FROM stickers WHERE sha256 = ?', input.sha256);
+    if (!sticker) return false;
+    const seenAt = input.seenAt.toISOString();
+    db.run(
+      `INSERT INTO sticker_scopes (scope_id, sticker_id, first_seen_at, last_seen_at, seen_count) VALUES (?, ?, ?, ?, 1)
+       ON CONFLICT (scope_id, sticker_id) DO UPDATE SET
+         first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
+         last_seen_at = MAX(last_seen_at, excluded.last_seen_at),
+         seen_count = seen_count + 1`,
+      input.scopeId, sticker.id, seenAt, seenAt
+    );
+    db.run('INSERT OR IGNORE INTO sticker_sightings (scope_id, stanza_id, sticker_id, seen_at) VALUES (?, ?, ?, ?)',
+      input.scopeId, input.stanzaId, sticker.id, seenAt);
+    return true;
+  });
+}
+
+export interface BackfillChatRow {
+  scope_id: string;
+  chat_id: string;
+  after_media_id: string | null;
+  done: number;
+  imported: number;
+}
+
+/** Marks a scope as requested; returns true only the first time. */
+export function requestBackfill(db: PluginDatabase, scopeId: string, now: Date): boolean {
+  return db.run('INSERT OR IGNORE INTO backfill_scopes (scope_id, requested_at) VALUES (?, ?)', scopeId, now.toISOString()).changes > 0;
+}
+
+export function backfillChat(db: PluginDatabase, scopeId: string, chatId: string, now: Date): BackfillChatRow {
+  db.run('INSERT OR IGNORE INTO backfill_chats (scope_id, chat_id, updated_at) VALUES (?, ?, ?)', scopeId, chatId, now.toISOString());
+  return db.get<BackfillChatRow & Record<string, unknown>>(
+    'SELECT scope_id, chat_id, after_media_id, done, imported FROM backfill_chats WHERE scope_id = ? AND chat_id = ?', scopeId, chatId
+  )!;
+}
+
+export function advanceBackfillChat(
+  db: PluginDatabase,
+  input: { scopeId: string; chatId: string; afterMediaId: string | undefined; done: boolean; imported: number; now: Date }
+): void {
+  db.run(
+    `UPDATE backfill_chats SET after_media_id = COALESCE(?, after_media_id), done = ?, imported = imported + ?, updated_at = ?
+      WHERE scope_id = ? AND chat_id = ?`,
+    input.afterMediaId ?? null, input.done ? 1 : 0, input.imported, input.now.toISOString(), input.scopeId, input.chatId
+  );
+}
+
+export function completeBackfill(db: PluginDatabase, scopeId: string, now: Date): void {
+  db.run('UPDATE backfill_scopes SET completed_at = ? WHERE scope_id = ?', now.toISOString(), scopeId);
+}
+
+export function backfillImported(db: PluginDatabase, scopeId: string): number {
+  return Number(db.get<{ n: number }>('SELECT COALESCE(SUM(imported), 0) AS n FROM backfill_chats WHERE scope_id = ?', scopeId)?.n ?? 0);
 }
 
 export function recordDeliveries(db: PluginDatabase, scopeId: string, identityId: string, stickerIds: number[], at: Date): void {

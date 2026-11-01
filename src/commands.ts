@@ -8,8 +8,8 @@ import {
   STICKER_THIEF_NAMESPACE as ns,
   STICKER_THIEF_PLUGIN_ID
 } from './constants';
-import { configFor, nowFrom, planDelivery, scheduleDigest, stanzaIdOf, stickerDatabase, type StickerThiefDeps } from './service';
-import { deleteSubscription, forgetStickerBySighting, getSubscription, scopeStats, upsertSubscription } from './store';
+import { configFor, deliverBatch, newDeliveryId, nowFrom, scheduleDigest, selectDeliveryIds, stanzaIdOf, startBackfill, stickerDatabase, type StickerThiefDeps } from './service';
+import { backfillImported, deleteSubscription, forgetStickerBySighting, getSubscription, scopeStats, upsertSubscription } from './store';
 
 const CHAT_FLAG_TARGET: CommandTargetSpec = { kind: 'group', name: 'chat', flag: 'chat' };
 const SCOPE_TARGET: CommandTargetSpec = { kind: 'scope', flag: ['scope', 'scope-id'], fallback: 'current_scope' };
@@ -66,9 +66,10 @@ function reply(text: string, extra: Partial<CommandResult> = {}): CommandResult 
   return { handled: true, text, ...extra };
 }
 
-function parseCount(raw: string | undefined, max: number): number {
-  const value = raw ? Number.parseInt(raw, 10) : max;
-  return Number.isFinite(value) && value > 0 ? Math.min(value, max) : max;
+/** A positive number from the command wins; otherwise the configured limit, where 0 means everything. */
+function parseCount(raw: string | undefined, configured: number): number {
+  const value = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isSafeInteger(value) && value > 0 ? value : configured;
 }
 
 export function registerStickerThiefCommands(context: ManagedGroupCommandContext): void {
@@ -88,10 +89,10 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     const cadence = requested && isCadence(requested) ? requested : config.defaultCadence;
     const subscription = upsertSubscription(db, call.scopeId, call.identityId, cadence, nowFrom(deps));
     await scheduleDigest(deps, subscription);
+    await startBackfill(deps, call.scopeId, { onlyFirstTime: true });
     const stats = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
     return reply(ctx.t(`${ns}.subscribed`, {
       cadence: ctx.t(`${ns}.cadence.${cadence}`),
-      count: config.digestSize,
       available: stats.unseen
     }));
   });
@@ -118,6 +119,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     return reply(ctx.t(`${ns}.status`, {
       total: stats.total,
       unseen: stats.unseen,
+      archived: backfillImported(db, call.scopeId),
       subscription: subscription
         ? ctx.t(`${ns}.status.subscribed`, {
             cadence: ctx.t(`${ns}.cadence.${subscription.cadence}`),
@@ -140,19 +142,24 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
       if (ctx.managementMode === 'OBSERVE') return reply(ctx.t(`${ns}.observeOnly`));
       const db = stickerDatabase(deps);
       if (!db || !deps.mediaStore) return reply(ctx.t(`${ns}.unavailable`));
-      const planned = await planDelivery(deps, db, {
+      const stickerIds = selectDeliveryIds(db, {
         scopeId: call.scopeId,
         identityId: call.identityId,
-        chatId: call.deliveryChatId,
         limit: parseCount(args(ctx)[0], config.manualSendLimit),
         includeAnimated: config.includeAnimated,
         order
       });
-      if (!planned.actions.length) {
+      const actions = stickerIds.length
+        ? await deliverBatch(deps, db, {
+            scopeId: call.scopeId, identityId: call.identityId, chatId: call.deliveryChatId, deliveryId: newDeliveryId(), stickerIds
+          })
+        : [];
+      if (!actions.length) {
         const { total } = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
         return reply(ctx.t(total ? `${ns}.noNewStickers` : `${ns}.noStickers`, { total }));
       }
-      return reply(ctx.t(`${ns}.sending`, { count: planned.actions.length }), { pluginActions: planned.actions });
+      return reply(ctx.t(stickerIds.length > actions.length ? `${ns}.sendingBatched` : `${ns}.sending`, { count: stickerIds.length }),
+        { pluginActions: actions });
     });
   }
 

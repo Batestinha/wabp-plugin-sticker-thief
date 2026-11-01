@@ -2,7 +2,9 @@ import type { PluginManifest } from '@wabs/plugin-sdk/manifest';
 import { stickerThiefConfigSchema } from './config';
 import {
   STICKER_THIEF_CORE_API_RANGE,
+  STICKER_THIEF_BACKFILL_JOB,
   STICKER_THIEF_DATABASE,
+  STICKER_THIEF_DELIVER_JOB,
   STICKER_THIEF_DIGEST_JOB,
   STICKER_THIEF_MANAGE_PERMISSION,
   STICKER_THIEF_NAMESPACE as ns,
@@ -76,13 +78,13 @@ export const stickerThiefManifest: PluginManifest = {
   requiredBotCapabilities: [],
   configSchema: stickerThiefConfigSchema,
   dangerousActions: [],
-  backgroundJobs: [STICKER_THIEF_DIGEST_JOB],
+  backgroundJobs: [STICKER_THIEF_DIGEST_JOB, STICKER_THIEF_DELIVER_JOB, STICKER_THIEF_BACKFILL_JOB],
   databases: [{ name: STICKER_THIEF_DATABASE, engine: 'sqlite', scope: 'account', migrations: 'migrations/stickers' }],
-  dataVersion: '1',
+  dataVersion: '2',
   dependencies: [],
   cancellation: { workflows: [] },
   assistant: {
-    summary: 'Collects new stickers shared in managed groups and sends them privately to members, on a subscription or on request.',
+    summary: 'Collects stickers shared in managed groups, including those already in the chat archive, and sends them privately to members, on a subscription or on request.',
     useCases: [
       'Subscribe a member to daily or weekly private sticker digests.',
       'Send a member the stickers they have not received yet, or a random selection.',
@@ -94,6 +96,8 @@ export const stickerThiefManifest: PluginManifest = {
     ],
     limitations: [
       'Only WebP stickers are collected; Lottie stickers are skipped.',
+      'Large deliveries are sent 10 stickers at a time about every 30 seconds.',
+      'Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.',
       'Members only receive stickers collected in groups of the same scope.'
     ],
     workflows: [

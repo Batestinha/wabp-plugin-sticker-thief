@@ -59,7 +59,7 @@ test('manual send delivers unseen stickers privately as native stickers, once ea
     assert.equal(action.chatId, 'alice@lid');
     assert.equal(action.file.mimeType, 'image/webp');
     assert.ok(Buffer.isBuffer(action.file.buffer));
-    assert.match(action.idempotencyKey, /^sticker-thief:scope-1:alice:[0-9a-f]{64}$/);
+    assert.match(action.idempotencyKey, /^sticker-thief:[0-9a-f-]{36}:[0-9a-f]{64}$/);
   }
   assert.equal((await h.command('send')).pluginActions.length, 1);
   const none = await h.command('send');
@@ -71,15 +71,15 @@ test('manual send delivers unseen stickers privately as native stickers, once ea
   assert.equal((await h.command('random', { args: ['5'] })).pluginActions.length, 3);
 });
 
-test('caps manual requests, hides animated stickers when configured and refuses OBSERVE scopes', async () => {
+test('uses the configured limit only without a number, hides animated stickers when configured and refuses OBSERVE scopes', async () => {
   const h = setup({ config: { manualSendLimit: 1, includeAnimated: false } });
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'still-1' })));
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'still-2' })));
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'moving', animated: true })));
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers WHERE animated = 1').n, 1);
   assert.match((await h.command('send', { managementMode: 'OBSERVE' })).text, /observeOnly/);
-  assert.equal((await h.command('send', { args: ['10'] })).pluginActions.length, 1);
-  assert.equal((await h.command('send')).pluginActions.length, 1);
+  assert.equal((await h.command('send')).pluginActions.length, 1, 'configured limit');
+  assert.equal((await h.command('send', { args: ['10'] })).pluginActions.length, 1, 'only one still unseen');
   assert.match((await h.command('send')).text, /noNewStickers/);
 });
 
@@ -195,4 +195,136 @@ test('parses WebP headers for all three bitstream forms', () => {
   lossless[20] = 0x2f; lossless.writeUInt32LE(511 | (255 << 14), 21);
   assert.deepEqual(parseWebPInfo(lossless), { width: 512, height: 256, animated: false });
   assert.equal(parseWebPInfo(Buffer.from('GIF89a')), undefined);
+});
+
+// --- 0.2.0: no cap, batched delivery ---------------------------------------
+const { runDeliveryBatch } = require('../dist/hooks.js');
+const { runBackfillPage, startBackfill } = require('../dist/service.js');
+
+async function drainDeliveries(h, scopeId = SCOPE, managementMode = 'ASSIST') {
+  const batches = [];
+  for (let job; (job = h.jobs.find(j => j.jobName === 'sticker-thief.deliver' && !j.done));) {
+    job.done = true;
+    batches.push(await runDeliveryBatch(h.context, { ...job, scopeId, managementMode }));
+  }
+  return batches;
+}
+
+test('sends every unseen sticker without a cap, 10 per batch through follow-up jobs', async () => {
+  const h = setup();
+  for (let i = 0; i < 25; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `s${i}` })));
+  const first = await h.command('send');
+  assert.equal(first.pluginActions.length, 10);
+  assert.match(first.text, /sendingBatched.*"count":25/);
+  const [job] = h.jobs.filter(j => j.jobName === 'sticker-thief.deliver');
+  assert.equal(job.payload.stickerIds.length, 15);
+  assert.equal(job.runAt.getTime() - Date.parse('2026-11-01T12:00:00.000Z'), 30_000);
+  const batches = await drainDeliveries(h);
+  assert.deepEqual(batches.map(b => b.length), [10, 5]);
+  const keys = new Set([first, ...batches.map(b => ({ pluginActions: b }))].flatMap(r => r.pluginActions.map(a => a.idempotencyKey)));
+  assert.equal(keys.size, 25);
+  assert.equal(new Set([...keys].map(k => k.split(':')[1])).size, 1, 'one delivery id per request');
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 25);
+  assert.match((await h.command('send')).text, /noNewStickers/);
+});
+
+test('repeat random requests use fresh idempotency keys so WhatsApp does not drop them', async () => {
+  const h = setup();
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'only' })));
+  const a = (await h.command('random')).pluginActions[0].idempotencyKey;
+  const b = (await h.command('random')).pluginActions[0].idempotencyKey;
+  assert.notEqual(a, b);
+});
+
+test('digests send everything unseen in batches and stop follow-ups in OBSERVE scopes', async () => {
+  const h = setup({ members: ['alice'] });
+  for (let i = 0; i < 12; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `d${i}` })));
+  await h.command('subscribe', { args: ['daily'] });
+  h.setNow('2026-11-02T12:00:00.000Z');
+  const actions = await runDigest(h.context, { ...h.jobs[0], scopeId: SCOPE, managementMode: 'ASSIST' });
+  assert.match(actions[0].text, /digestHeader.*"count":12/);
+  assert.equal(actions.filter(a => a.type === 'message.sendSticker').length, 10);
+  assert.equal(await drainDeliveries(h, SCOPE, 'OBSERVE').then(b => b[0]), undefined);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 10);
+});
+
+// --- 0.2.0: chat archive backfill ------------------------------------------
+
+function archivedItems(prefix, count, { start = Date.parse('2026-08-01T00:00:00Z') } = {}) {
+  return Array.from({ length: count }, (_, i) => ({
+    mediaId: `${prefix}-${String(i).padStart(4, '0')}`,
+    messageId: `false_${prefix}@g.us_${prefix.toUpperCase()}${i}_m@lid`,
+    timestamp: new Date(start + i * 60_000),
+    buffer: webp({ salt: `${prefix}${i}` })
+  }));
+}
+
+async function drainBackfill(h) {
+  const results = [];
+  for (let i = 0; i < 50; i++) {
+    const result = await runBackfillPage(h.context, SCOPE);
+    results.push(result);
+    if (result.kind !== 'page') break;
+  }
+  return results;
+}
+
+test('backfills every covered chat from the archive in pages and dedupes against live and repeated stickers', async () => {
+  const groupA = archivedItems('a', 55);
+  groupA[3] = { ...groupA[3], fromMe: true };
+  groupA[4] = { ...groupA[4], mimeType: 'application/was' };
+  groupA[5] = { ...groupA[5], buffer: groupA[6].buffer };
+  const groupB = archivedItems('b', 2);
+  const h = setup({ archiveChats: { 'a@g.us': groupA, 'b@g.us': groupB } });
+  const results = await drainBackfill(h);
+  assert.deepEqual(results.map(r => r.kind === 'page' ? `${r.chatId}:${r.listed}:${r.imported}` : r.kind),
+    ['a@g.us:50:47', 'a@g.us:5:5', 'b@g.us:2:2', 'done']);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers').n, 54, '55 + 2 minus own, non-WebP and one duplicate');
+  assert.equal(h.db.get("SELECT COUNT(*) AS n FROM sticker_sightings WHERE scope_id = 'scope-1'").n, 55);
+  assert.equal(h.media.stored.size, 54, 'duplicate staged copy deleted');
+  assert.equal(h.archived.calls.list[1].afterMediaId, 'a-0049');
+  assert.equal(await startBackfill(h.context, SCOPE), true);
+  await drainBackfill(h);
+  assert.ok(h.db.get('SELECT completed_at FROM backfill_scopes').completed_at, 'scope marked complete');
+  // A second pass touches nothing and does not stage again.
+  const staged = h.archived.calls.stage.length;
+  await drainBackfill(h);
+  assert.equal(h.archived.calls.stage.length, staged);
+  // Status reports the import; oldest archived stickers are sent first.
+  assert.match((await h.command('status')).text, /"total":54.*"archived":54/);
+  const first = (await h.command('send', { args: ['1'] })).pluginActions[0];
+  const oldest = h.db.get("SELECT s.sha256 FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id ORDER BY ss.first_seen_at LIMIT 1").sha256;
+  assert.ok(first.file.filename.startsWith(oldest.slice(0, 16)));
+});
+
+test('backfill uses the archive hash to skip staging stickers already collected, and respects forgotten stickers', async () => {
+  const items = archivedItems('c', 2);
+  const h = setup({ archiveChats: { 'c@g.us': items } });
+  const live = h.addSticker(items[0].buffer);
+  await collectSticker(h.context, SCOPE, live);
+  const crypto = require('node:crypto');
+  items[0].sha256 = crypto.createHash('sha256').update(items[0].buffer).digest('hex');
+  items[1].sha256 = crypto.createHash('sha256').update(items[1].buffer).digest('hex');
+  await h.command('forget', { replyTo: live.id });
+  await drainBackfill(h);
+  assert.deepEqual(h.archived.calls.stage, ['c-0001'], 'known/forgotten hash is not staged');
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers').n, 1, 'forgotten sticker not re-collected');
+});
+
+test('backfill starts once per scope on the first message, on subscribe, and on every startup', async () => {
+  const h = setup({ archiveChats: { 'a@g.us': archivedItems('a', 1) } });
+  await h.hooks.onMessage({ scopeId: SCOPE, message: { type: 'chat', context: 'group' } });
+  await h.hooks.onMessage({ scopeId: SCOPE, message: { type: 'chat', context: 'group' } });
+  const starts = () => h.jobs.filter(j => j.jobName === 'sticker-thief.backfill').length;
+  assert.equal(starts(), 1);
+  assert.equal(h.jobs[0].dedupeKey, 'sticker-thief:backfill:scope-1:start');
+  await h.command('subscribe');
+  assert.equal(starts(), 1);
+  await h.hooks.onRuntimeReady({});
+  assert.equal(starts(), 2, 'startup resumes or rescans');
+  const off = setup({ config: { backfillArchive: false }, archiveChats: { 'a@g.us': archivedItems('a', 1) } });
+  assert.equal(await startBackfill(off.context, SCOPE), false);
+  assert.deepEqual(await runBackfillPage(off.context, SCOPE), { kind: 'skipped', reason: 'backfill-disabled' });
+  const noArchive = setup();
+  assert.equal(await startBackfill(noArchive.context, SCOPE), false, 'older cores without archivedStickers');
 });
