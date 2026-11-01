@@ -4,8 +4,8 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.6.0",
-  "coreApiRange": "^0.3.19",
+  "version": "0.7.0",
+  "coreApiRange": "^0.3.20",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -126,7 +126,8 @@
   "backgroundJobs": [
     "sticker-thief.digest",
     "sticker-thief.deliver",
-    "sticker-thief.backfill"
+    "sticker-thief.backfill",
+    "sticker-thief.favorite"
   ],
   "databases": [
     {
@@ -136,7 +137,7 @@
       "migrations": "migrations/stickers"
     }
   ],
-  "dataVersion": "2",
+  "dataVersion": "3",
   "cancellation": {
     "workflows": []
   },
@@ -157,6 +158,7 @@
       "Deliveries arrive as native sticker packs of up to 60 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.",
       "Stickers outside WhatsApp pack rules are resized and recompressed by the host (512x512, at most 100 KB still or 500 KB animated); animated ones may lose some frames.",
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
+      "Every collected sticker is added to the bot account's favourite stickers (WhatsApp syncs favourites, not installed packs, across an account's devices).",
       "Members only receive stickers collected in groups of the same scope."
     ],
     "workflows": [
@@ -195,6 +197,7 @@
       "digestSize",
       "manualSendLimit",
       "backfillArchive",
+      "favoriteOnBotAccount",
       "deliverAsPacks",
       "defaultCadence"
     ],
@@ -316,6 +319,22 @@
         "ui": {
           "widget": "toggle",
           "helpText": "Deliver stickers as native WhatsApp sticker packs of up to 60 (stickers are resized to fit the WhatsApp pack rules; leftovers of 1-2 are sent individually). Turn off to send every sticker individually."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.favoriteOnBotAccount",
+        "path": "favoriteOnBotAccount",
+        "label": "Add to bot favourites",
+        "description": "Add every collected sticker to the bot account's favourite stickers, which WhatsApp syncs to the bot account's devices.",
+        "section": "Sticker Thief",
+        "order": 67,
+        "schema": {
+          "type": "boolean"
+        },
+        "ui": {
+          "widget": "toggle",
+          "helpText": "Add every collected sticker to the bot account's favourite stickers, which WhatsApp syncs to the bot account's devices."
         }
       },
       {

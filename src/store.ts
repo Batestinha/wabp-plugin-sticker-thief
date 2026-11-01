@@ -140,6 +140,21 @@ export function recordKnownSticker(db: PluginDatabase, input: { scopeId: string;
   });
 }
 
+/** Stickers collected in the scope that are not yet favourited on the bot account. */
+export function pendingFavorites(db: PluginDatabase, scopeId: string, limit: number): Array<{ id: number; media_id: string }> {
+  return db.all<{ id: number; media_id: string }>(
+    `SELECT s.id, s.media_id FROM stickers s JOIN sticker_scopes ss ON ss.sticker_id = s.id AND ss.scope_id = ?
+      WHERE s.favorited_at IS NULL ORDER BY ss.first_seen_at, s.id LIMIT ?`,
+    scopeId, limit
+  );
+}
+
+export function markFavorited(db: PluginDatabase, stickerIds: number[], at: Date): void {
+  db.transaction(() => {
+    for (const id of stickerIds) db.run('UPDATE stickers SET favorited_at = ? WHERE id = ?', at.toISOString(), id);
+  });
+}
+
 export interface BackfillChatRow {
   scope_id: string;
   chat_id: string;
@@ -277,13 +292,13 @@ export function advanceSubscription(db: PluginDatabase, scopeId: string, identit
 
 export type ForgetResult =
   | { kind: 'not-found' }
-  | { kind: 'forgotten'; sha256: string; orphanMediaId?: string | undefined };
+  | { kind: 'forgotten'; sha256: string; orphanMediaId?: string | undefined; wasFavorited?: boolean | undefined };
 
 /** Removes a sticker from one scope and blocks it there. Returns the media id when no scope references it any more. */
 export function forgetStickerBySighting(db: PluginDatabase, scopeId: string, stanzaId: string, actorIdentityId: string, now: Date): ForgetResult {
   return db.transaction(() => {
-    const sticker = db.get<{ id: number; sha256: string; media_id: string }>(
-      `SELECT s.id, s.sha256, s.media_id FROM sticker_sightings ss JOIN stickers s ON s.id = ss.sticker_id
+    const sticker = db.get<{ id: number; sha256: string; media_id: string; favorited_at: string | null }>(
+      `SELECT s.id, s.sha256, s.media_id, s.favorited_at FROM sticker_sightings ss JOIN stickers s ON s.id = ss.sticker_id
         WHERE ss.scope_id = ? AND ss.stanza_id = ?`,
       scopeId, stanzaId
     );
@@ -298,7 +313,7 @@ export function forgetStickerBySighting(db: PluginDatabase, scopeId: string, sta
     const stillUsed = db.get('SELECT 1 AS hit FROM sticker_scopes WHERE sticker_id = ?', sticker.id);
     if (stillUsed) return { kind: 'forgotten', sha256: sticker.sha256 } as const;
     db.run('DELETE FROM stickers WHERE id = ?', sticker.id);
-    return { kind: 'forgotten', sha256: sticker.sha256, orphanMediaId: sticker.media_id } as const;
+    return { kind: 'forgotten', sha256: sticker.sha256, orphanMediaId: sticker.media_id, wasFavorited: Boolean(sticker.favorited_at) } as const;
   });
 }
 

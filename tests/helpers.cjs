@@ -114,7 +114,9 @@ function harness({ config = {}, members, archiveChats, coveredChats } = {}) {
   let clock = new Date('2026-11-01T12:00:00.000Z');
   const handlers = new Map();
   const archived = archiveChats ? archive(archiveChats).bind(media) : undefined;
+  const favoriteCalls = [];
   const context = {
+    accountStickers: { async setFavorite(input) { favoriteCalls.push({ scopeId: input.scopeId, favorite: input.favorite, count: input.files.length, files: input.files }); return { count: input.files.length }; } },
     ...(archived ? { archivedStickers: archived } : {}),
     coveredGroupsForScope: async scopeId => (coveredChats ?? Object.keys(archiveChats ?? {})).map(groupWid => ({ scopeId, groupId: groupWid, groupWid, managementMode: 'ASSIST' })),
     listEnabledScopes: async () => [{ scopeId: 'scope-1', kind: 'group', name: 'Group' }],
@@ -130,7 +132,7 @@ function harness({ config = {}, members, archiveChats, coveredChats } = {}) {
     router: { register(namespace, sub, metadata, handler) { handlers.set(`${namespace} ${sub}`, { metadata, handler }); } }
   };
   return {
-    db, files, media, jobs, handlers, context, archived,
+    db, files, media, jobs, handlers, context, archived, favoriteCalls,
     setNow(date) { clock = new Date(date); },
     addSticker(buffer, overrides = {}) {
       const message = stickerMessage(overrides);

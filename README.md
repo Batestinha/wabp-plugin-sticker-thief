@@ -37,6 +37,7 @@ than one); add `--chat <name>` to pick one directly.
   Nothing is sent when the scope is in `OBSERVE` mode.
 - Deliveries arrive as native sticker packs of up to 60 (still and animated apart). Stickers outside WhatsApp's pack rules are resized and recompressed by the bot to fit them (512×512, at most 100 KB still or 500 KB animated; animated ones may lose some frames). Leftovers of 1–2 are sent individually. Turn `deliverAsPacks` off to send everything individually.
 - Every send carries a per-request idempotency key, so repeated requests always deliver.
+- **Bot favourites**: every collected sticker (including archive imports) is added to the bot account's favourite stickers, 20 at a time, so it shows under Favourites on the bot account's phone and linked devices. WhatsApp syncs favourites, not installed packs, across an account's devices. `/stickers forget` removes the sticker from the favourites too. Needs WABP core API 0.3.20.
 
 ## Configuration (per scope)
 
@@ -48,6 +49,7 @@ than one); add `--chat <name>` to pick one directly.
 | `maxStickerBytes` | `1048576` | Larger stickers are not collected. |
 | `digestSize` | `10` | Most stickers per digest (1–30). |
 | `manualSendLimit` | `10` | Most stickers per `send`/`random` (1–30). |
+| `favoriteOnBotAccount` | `true` | Add collected stickers to the bot account's favourite stickers. |
 | `defaultCadence` | `daily` | Cadence when `subscribe` has no argument. |
 
 ## Development

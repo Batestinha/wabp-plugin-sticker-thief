@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PluginAction } from '@wabs/plugin-sdk/actions';
 import type { PluginArchivedStickers } from '@wabs/plugin-sdk/chat-archive';
+import type { PluginAccountStickers } from '@wabs/plugin-sdk/integration-plugin';
 import type { PluginDatabase, PluginDatabaseRegistry } from '@wabs/plugin-sdk/database';
 import type { PluginCoveredGroup } from '@wabs/plugin-sdk/hook-plugin';
 import type { PluginJobInput } from '@wabs/plugin-sdk/jobs';
@@ -21,7 +22,10 @@ import {
   STICKER_THIEF_BACKFILL_JOB,
   STICKER_THIEF_DATABASE,
   STICKER_THIEF_DELIVER_JOB,
-  STICKER_THIEF_DIGEST_JOB
+  STICKER_THIEF_DIGEST_JOB,
+  STICKER_THIEF_FAVORITE_JOB,
+  FAVORITE_BATCH_SIZE,
+  FAVORITE_BATCH_SPACING_MS
 } from './constants';
 import {
   advanceBackfillChat,
@@ -29,6 +33,8 @@ import {
   completeBackfill,
   dropStickerEverywhere,
   isKnownSighting,
+  markFavorited,
+  pendingFavorites,
   recordDeliveries,
   recordKnownSticker,
   recordSticker,
@@ -44,6 +50,7 @@ export interface StickerThiefDeps {
   databases?: PluginDatabaseRegistry | undefined;
   mediaStore?: PluginMediaStore | undefined;
   archivedStickers?: PluginArchivedStickers | undefined;
+  accountStickers?: PluginAccountStickers | undefined;
   coveredGroupsForScope?: ((scopeId: string) => Promise<PluginCoveredGroup[]>) | undefined;
   enqueuePluginJob?: ((input: PluginJobInput) => Promise<unknown>) | undefined;
   configFor?: ((scopeId: string, actorIdentityId?: string | undefined) => Promise<Record<string, unknown>>) | undefined;
@@ -401,6 +408,7 @@ export async function runBackfillPage(deps: StickerThiefDeps, scopeId: string): 
     const chatDone = items.length < BACKFILL_PAGE_SIZE;
     const last = items.at(-1)?.mediaId;
     advanceBackfillChat(db, { scopeId, chatId, afterMediaId: last, done: chatDone, imported, now: nowFrom(deps) });
+    if (imported) await scheduleFavorites(deps, scopeId);
     await enqueue(deps, {
       jobName: STICKER_THIEF_BACKFILL_JOB,
       executionClass: 'maintenance',
@@ -413,4 +421,69 @@ export async function runBackfillPage(deps: StickerThiefDeps, scopeId: string): 
   }
   completeBackfill(db, scopeId, nowFrom(deps));
   return { kind: 'done' };
+}
+
+// ---------------------------------------------------------------------------
+// Bot account favourites: WhatsApp syncs favourite stickers (not packs) to an
+// account's devices, so every collected sticker is favourited on the bot.
+// ---------------------------------------------------------------------------
+
+function favoritesAllowed(deps: StickerThiefDeps, config: StickerThiefConfig): boolean {
+  return Boolean(deps.accountStickers && config.enabled && config.favoriteOnBotAccount);
+}
+
+/** Queues a favourite run for the scope; a pending run absorbs repeated calls. */
+export async function scheduleFavorites(deps: StickerThiefDeps, scopeId: string, delayMs = 5_000): Promise<boolean> {
+  if (!favoritesAllowed(deps, await configFor(deps, scopeId))) return false;
+  await enqueue(deps, {
+    jobName: STICKER_THIEF_FAVORITE_JOB,
+    executionClass: 'maintenance',
+    scopeId,
+    payload: {},
+    runAt: new Date(nowFrom(deps).getTime() + delayMs),
+    dedupeKey: `sticker-thief:favorite:${scopeId}`,
+    replaceRetainedTerminalJob: true
+  });
+  return true;
+}
+
+export type FavoriteRunResult =
+  | { kind: 'skipped'; reason: string }
+  | { kind: 'favorited'; count: number; more: boolean };
+
+/** Favourites the next batch of the scope's stickers on the bot account. */
+export async function runFavorites(deps: StickerThiefDeps, scopeId: string): Promise<FavoriteRunResult> {
+  const db = stickerDatabase(deps);
+  if (!db || !deps.mediaStore) return { kind: 'skipped', reason: 'storage-unavailable' };
+  if (!favoritesAllowed(deps, await configFor(deps, scopeId))) return { kind: 'skipped', reason: 'favorites-disabled' };
+  const pending = pendingFavorites(db, scopeId, FAVORITE_BATCH_SIZE + 1);
+  const batch = pending.slice(0, FAVORITE_BATCH_SIZE);
+  if (!batch.length) return { kind: 'favorited', count: 0, more: false };
+  const files: Array<{ filename: string; mimeType: string; buffer: Buffer }> = [];
+  const ids: number[] = [];
+  for (const sticker of batch) {
+    const stored = await deps.mediaStore.read(sticker.media_id);
+    if (!stored) {
+      dropStickerEverywhere(db, sticker.id);
+      continue;
+    }
+    files.push({ filename: `${sticker.id}.webp`, mimeType: STICKER_MIME_TYPE, buffer: stored.buffer });
+    ids.push(Number(sticker.id));
+  }
+  if (files.length) {
+    await deps.accountStickers!.setFavorite({ scopeId, files, favorite: true });
+    markFavorited(db, ids, nowFrom(deps));
+  }
+  const more = pending.length > FAVORITE_BATCH_SIZE;
+  if (more) {
+    await enqueue(deps, {
+      jobName: STICKER_THIEF_FAVORITE_JOB,
+      executionClass: 'maintenance',
+      scopeId,
+      payload: {},
+      runAt: new Date(nowFrom(deps).getTime() + FAVORITE_BATCH_SPACING_MS),
+      dedupeKey: `sticker-thief:favorite:${scopeId}:${ids.at(-1) ?? 0}`
+    });
+  }
+  return { kind: 'favorited', count: files.length, more };
 }

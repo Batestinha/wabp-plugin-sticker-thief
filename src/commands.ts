@@ -207,7 +207,19 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     if (!db) return reply(ctx.t(`${ns}.unavailable`));
     const result = forgetStickerBySighting(db, call.scopeId, stanzaIdOf(quoted), call.identityId, nowFrom(deps));
     if (result.kind === 'not-found') return reply(ctx.t(`${ns}.forgetNotFound`));
-    if (result.orphanMediaId) await deps.mediaStore?.delete(result.orphanMediaId);
+    if (result.orphanMediaId) {
+      // Take it out of the bot account's favourites too, while its file still exists.
+      if (result.wasFavorited && deps.accountStickers) {
+        const stored = await deps.mediaStore?.read(result.orphanMediaId);
+        if (stored) {
+          await deps.accountStickers.setFavorite({
+            scopeId: call.scopeId, favorite: false,
+            files: [{ filename: `${result.sha256.slice(0, 16)}.webp`, mimeType: 'image/webp', buffer: stored.buffer }]
+          }).catch(() => undefined);
+        }
+      }
+      await deps.mediaStore?.delete(result.orphanMediaId);
+    }
     return reply(ctx.t(`${ns}.forgotten`), {
       pluginActions: [{ type: 'audit.record', action: 'sticker-thief.forget', targetJson: { scopeId: call.scopeId, sha256: result.sha256 } }]
     });

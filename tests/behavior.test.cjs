@@ -133,12 +133,13 @@ test('unsubscribe, status and runtime re-seeding', async () => {
   await h.command('subscribe', { args: ['daily'] });
   assert.match((await h.command('status')).text, /status.subscribed.*2026-11-02 12:00 UTC/);
   await h.hooks.onRuntimeReady({});
-  assert.equal(h.jobs.length, 2);
-  assert.equal(h.jobs[1].dedupeKey, h.jobs[0].dedupeKey, 're-seeding reuses the pending slot key');
-  assert.equal(h.jobs[1].replaceRetainedTerminalJob, true);
+  const digests = h.jobs.filter(j => j.jobName === 'sticker-thief.digest');
+  assert.equal(digests.length, 2);
+  assert.equal(digests[1].dedupeKey, digests[0].dedupeKey, 're-seeding reuses the pending slot key');
+  assert.equal(digests[1].replaceRetainedTerminalJob, true);
   assert.match((await h.command('unsubscribe')).text, /unsubscribed/);
   assert.match((await h.command('unsubscribe')).text, /notSubscribed/);
-  assert.equal(await runDigest(h.context, { ...h.jobs[0], scopeId: SCOPE }), undefined);
+  assert.equal(await runDigest(h.context, { ...digests[0], scopeId: SCOPE }), undefined);
   assert.match((await h.command('subscribe', { args: ['hourly'] })).text, /subscribeUsage/);
 });
 
@@ -409,4 +410,54 @@ test('resend sends the most recently received stickers again, in collection orde
   assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendSticker', 'message.sendSticker']);
   assert.match((await h.command('send')).text, /noNewStickers/);
   assert.match((await h.command('resend', { identityId: 'bob' })).text, /nothingToResend/, 'per member');
+});
+
+// --- 0.7.0: bot account favourites ----------------------------------------
+const { runFavorites, scheduleFavorites } = require('../dist/service.js');
+
+test('new stickers are favourited on the bot account in batches of 20', async () => {
+  const h = setup();
+  for (let i = 0; i < 45; i++) await h.hooks.onMessage({ scopeId: SCOPE, message: h.addSticker(webp({ salt: `f${i}` })) });
+  const favJobs = () => h.jobs.filter(j => j.jobName === 'sticker-thief.favorite');
+  assert.ok(favJobs().length >= 1);
+  assert.equal(favJobs()[0].dedupeKey, 'sticker-thief:favorite:scope-1', 'repeated triggers coalesce on one key');
+  assert.deepEqual(await runFavorites(h.context, SCOPE), { kind: 'favorited', count: 20, more: true });
+  assert.deepEqual(await runFavorites(h.context, SCOPE), { kind: 'favorited', count: 20, more: true });
+  assert.deepEqual(await runFavorites(h.context, SCOPE), { kind: 'favorited', count: 5, more: false });
+  assert.deepEqual(await runFavorites(h.context, SCOPE), { kind: 'favorited', count: 0, more: false });
+  assert.deepEqual(h.favoriteCalls.map(c => [c.count, c.favorite, c.scopeId]), [[20, true, SCOPE], [20, true, SCOPE], [5, true, SCOPE]]);
+  assert.ok(h.favoriteCalls.flatMap(c => c.files).every(f => f.mimeType === 'image/webp' && Buffer.isBuffer(f.buffer)));
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers WHERE favorited_at IS NOT NULL').n, 45);
+});
+
+test('startup catches up favourites; the setting and older cores turn them off', async () => {
+  const h = setup();
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'old' })));
+  await h.hooks.onRuntimeReady({});
+  assert.ok(h.jobs.some(j => j.jobName === 'sticker-thief.favorite'));
+  const off = setup({ config: { favoriteOnBotAccount: false } });
+  await collectSticker(off.context, SCOPE, off.addSticker(webp({ salt: 'x' })));
+  assert.equal(await scheduleFavorites(off.context, SCOPE), false);
+  assert.deepEqual(await runFavorites(off.context, SCOPE), { kind: 'skipped', reason: 'favorites-disabled' });
+  const old = setup();
+  delete old.context.accountStickers;
+  assert.equal(await scheduleFavorites(old.context, SCOPE), false);
+});
+
+test('archive backfill favourites imported stickers too', async () => {
+  const h = setup({ archiveChats: { 'a@g.us': archivedItems('fa', 3) } });
+  await drainBackfill(h);
+  assert.ok(h.jobs.some(j => j.jobName === 'sticker-thief.favorite'));
+  await runFavorites(h.context, SCOPE);
+  assert.equal(h.favoriteCalls[0].count, 3);
+});
+
+test('forgetting a favourited sticker removes it from the bot favourites', async () => {
+  const h = setup();
+  const message = h.addSticker(webp({ salt: 'gone' }));
+  await collectSticker(h.context, SCOPE, message);
+  await runFavorites(h.context, SCOPE);
+  await h.command('forget', { replyTo: message.id });
+  assert.deepEqual(h.favoriteCalls.map(c => [c.count, c.favorite]), [[1, true], [1, false]]);
+  assert.equal(h.media.stored.size, 0);
 });

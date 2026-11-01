@@ -1,11 +1,15 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.6.0';
-export const STICKER_THIEF_CORE_API_RANGE = '^0.3.19';
+export const STICKER_THIEF_VERSION = '0.7.0';
+export const STICKER_THIEF_CORE_API_RANGE = '^0.3.20';
 export const STICKER_THIEF_DATABASE = 'stickers';
 export const STICKER_THIEF_DIGEST_JOB = 'sticker-thief.digest';
 export const STICKER_THIEF_DELIVER_JOB = 'sticker-thief.deliver';
 export const STICKER_THIEF_BACKFILL_JOB = 'sticker-thief.backfill';
+export const STICKER_THIEF_FAVORITE_JOB = 'sticker-thief.favorite';
+/** Stickers favourited on the bot account per job run (the host accepts up to 30). */
+export const FAVORITE_BATCH_SIZE = 20;
+export const FAVORITE_BATCH_SPACING_MS = 10_000;
 /** Stickers sent per batch; larger deliveries continue in follow-up jobs so WhatsApp is not flooded. */
 export const DELIVERY_BATCH_SIZE = 10;
 export const DELIVERY_BATCH_SPACING_MS = 30_000;

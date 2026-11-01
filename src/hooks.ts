@@ -7,6 +7,7 @@ import {
   STICKER_THIEF_BACKFILL_JOB,
   STICKER_THIEF_DELIVER_JOB,
   STICKER_THIEF_DIGEST_JOB,
+  STICKER_THIEF_FAVORITE_JOB,
   STICKER_THIEF_NAMESPACE
 } from './constants';
 import {
@@ -17,6 +18,8 @@ import {
   parseDeliveryPayload,
   parseDigestPayload,
   runBackfillPage,
+  runFavorites,
+  scheduleFavorites,
   scheduleDigest,
   selectDeliveryIds,
   startBackfill,
@@ -46,6 +49,10 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
         await startBackfill(context, scope.scopeId).catch((error: unknown) => {
           context.logger?.warn({ scopeId: scope.scopeId, error: String(error) }, 'Sticker Thief could not start the archive backfill');
         });
+        // Catches up stickers collected before favourites existed or while they failed.
+        await scheduleFavorites(context, scope.scopeId).catch((error: unknown) => {
+          context.logger?.warn({ scopeId: scope.scopeId, error: String(error) }, 'Sticker Thief could not schedule bot favourites');
+        });
       }
     },
     async onMessage(event) {
@@ -53,6 +60,7 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
       await startBackfill(context, event.scopeId, { onlyFirstTime: true });
       if (event.message.type !== 'sticker') return;
       const outcome = await collectSticker(context, event.scopeId, event.message);
+      if (outcome.kind === 'new') await scheduleFavorites(context, event.scopeId);
       if (outcome.kind === 'skipped' && outcome.reason === 'storage-unavailable') {
         context.logger?.warn({ scopeId: event.scopeId }, 'Sticker Thief storage is unavailable; sticker not collected');
       }
@@ -60,6 +68,10 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
     async onPluginJob(job) {
       if (job.jobName === STICKER_THIEF_DIGEST_JOB) return runDigest(context, job);
       if (job.jobName === STICKER_THIEF_DELIVER_JOB) return runDeliveryBatch(context, job);
+      if (job.jobName === STICKER_THIEF_FAVORITE_JOB) {
+        await runFavorites(context, job.scopeId);
+        return;
+      }
       if (job.jobName === STICKER_THIEF_BACKFILL_JOB) {
         await runBackfillPage(context, job.scopeId);
       }

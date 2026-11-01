@@ -6,6 +6,7 @@ import {
   STICKER_THIEF_DATABASE,
   STICKER_THIEF_DELIVER_JOB,
   STICKER_THIEF_DIGEST_JOB,
+  STICKER_THIEF_FAVORITE_JOB,
   STICKER_THIEF_MANAGE_PERMISSION,
   STICKER_THIEF_NAMESPACE as ns,
   STICKER_THIEF_PLUGIN_ID,
@@ -79,9 +80,9 @@ export const stickerThiefManifest: PluginManifest = {
   requiredBotCapabilities: [],
   configSchema: stickerThiefConfigSchema,
   dangerousActions: [],
-  backgroundJobs: [STICKER_THIEF_DIGEST_JOB, STICKER_THIEF_DELIVER_JOB, STICKER_THIEF_BACKFILL_JOB],
+  backgroundJobs: [STICKER_THIEF_DIGEST_JOB, STICKER_THIEF_DELIVER_JOB, STICKER_THIEF_BACKFILL_JOB, STICKER_THIEF_FAVORITE_JOB],
   databases: [{ name: STICKER_THIEF_DATABASE, engine: 'sqlite', scope: 'account', migrations: 'migrations/stickers' }],
-  dataVersion: '2',
+  dataVersion: '3',
   dependencies: [],
   cancellation: { workflows: [] },
   assistant: {
@@ -100,6 +101,7 @@ export const stickerThiefManifest: PluginManifest = {
       'Deliveries arrive as native sticker packs of up to 60 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.',
       'Stickers outside WhatsApp pack rules are resized and recompressed by the host (512x512, at most 100 KB still or 500 KB animated); animated ones may lose some frames.',
       'Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.',
+      'Every collected sticker is added to the bot account\'s favourite stickers (WhatsApp syncs favourites, not installed packs, across an account\'s devices).',
       'Members only receive stickers collected in groups of the same scope.'
     ],
     workflows: [
