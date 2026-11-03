@@ -520,6 +520,10 @@ test('the re-import action queues a rescan, reports status and is audited; disab
   assert.equal(audits.length, 1);
   assert.equal(audits[0].action, 'sticker-thief.reimport_archive');
   await assert.rejects(() => action.handler({ confirm: true }), /scopeId/);
+  // In the real host the archive, config and queue live behind runtimeContext(); the outer context lacks them.
+  const outer = { pluginId: h.context.pluginId, audit: { async record() {} }, runtimeContext: () => h.context };
+  const [viaRuntime] = plugin.registerExternalActions(outer);
+  assert.equal((await viaRuntime.handler({ scopeId: SCOPE })).queued, true, 'capabilities come from runtimeContext()');
   const off = setup({ config: { backfillArchive: false }, archiveChats: { 'e@g.us': archivedItems('e', 1) } });
   const [offAction] = plugin.registerExternalActions({ ...off.context, audit: { async record() {} } });
   assert.deepEqual((await offAction.handler({ scopeId: SCOPE })).queued, false);
