@@ -423,7 +423,9 @@ export async function runBackfillPage(deps: StickerThiefDeps, scopeId: string): 
       scopeId,
       payload: {},
       runAt: new Date(nowFrom(deps).getTime() + BACKFILL_PAGE_SPACING_MS),
-      dedupeKey: `sticker-thief:backfill:${scopeId}:${chatId}:${last ?? 'end'}`
+      dedupeKey: `sticker-thief:backfill:${scopeId}:${chatId}:${last ?? 'end'}`,
+      // A rescan repeats the same page keys; retained finished jobs must not swallow them.
+      replaceRetainedTerminalJob: true
     });
     return { kind: 'page', chatId, listed: items.length, imported, chatDone };
   }
