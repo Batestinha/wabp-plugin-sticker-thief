@@ -37,7 +37,8 @@ than one); add `--chat <name>` to pick one directly.
   Nothing is sent when the scope is in `OBSERVE` mode.
 - Deliveries arrive as native sticker packs of up to 60 (still and animated apart). Stickers outside WhatsApp's pack rules are resized and recompressed by the bot to fit them (512×512, at most 100 KB still or 500 KB animated; animated ones may lose some frames). Leftovers of 1–2 are sent individually. Turn `deliverAsPacks` off to send everything individually.
 - Every send carries a per-request idempotency key, so repeated requests always deliver.
-- **Bot favourites**: every collected sticker (including archive imports) is added to the bot account's favourite stickers, 20 at a time, so it shows under Favourites on the bot account's phone and linked devices. WhatsApp syncs favourites, not installed packs, across an account's devices. `/stickers forget` removes the sticker from the favourites too. Needs WABP core API 0.3.20.
+- **Bot favourites**: every collected sticker (including archive imports) is added to the bot account's favourite stickers, 20 at a time, so it shows under Favourites on the bot account's phone and linked devices. WhatsApp syncs favourites, not installed packs, across an account's devices. `/stickers forget` removes the sticker from the favourites too. When WhatsApp refuses a favourite write (typically while it waits for the phone to repair the favourites list), the plugin retries with doubling delays from 5 minutes up to an hour instead of failing the job. Needs WABP core API 0.3.20.
+- **Console gallery**: the Sticker Thief settings page in the operator console shows every collected sticker as its image or animation, which ones are favourited or still waiting, why favourites are waiting (and when the next retry is), and the favourites switch. Needs WABP core API 0.3.21 (plugin console operations `stickerGallery` and `stickerImage`).
 
 ## Configuration (per scope)
 

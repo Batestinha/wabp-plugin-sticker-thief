@@ -16,7 +16,7 @@ test('package metadata matches the executable manifest', () => {
   }
   assert.equal(metadata.version, pkg.version);
   // Bot account favourites (accountStickers) need core API 0.3.20.
-  assert.equal(metadata.coreApiRange, '^0.3.20');
+  assert.equal(metadata.coreApiRange, '^0.3.21');
 });
 
 test('every default message has a non-empty pt-PT translation and no extras', () => {

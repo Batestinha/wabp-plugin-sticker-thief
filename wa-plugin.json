@@ -4,8 +4,8 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.8.2",
-  "coreApiRange": "^0.3.20",
+  "version": "0.9.0",
+  "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -137,7 +137,7 @@
       "migrations": "migrations/stickers"
     }
   ],
-  "dataVersion": "3",
+  "dataVersion": "4",
   "cancellation": {
     "workflows": []
   },
@@ -158,7 +158,7 @@
       "Deliveries arrive as native sticker packs of up to 60 stickers (still and animated kept apart) about every 15 seconds; with packs off, 10 single stickers about every 30 seconds.",
       "Stickers outside WhatsApp pack rules are resized and recompressed by the host (512x512, at most 100 KB still or 500 KB animated); animated ones may lose some frames.",
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
-      "Every collected sticker is added to the bot account's favourite stickers (WhatsApp syncs favourites, not installed packs, across an account's devices).",
+      "Every collected sticker is added to the bot account's favourite stickers (WhatsApp syncs favourites, not installed packs, across an account's devices); when WhatsApp waits for the phone to repair that list, favourites retry with growing delays and the operator console shows what is waiting.",
       "Members only receive stickers collected in groups of the same scope."
     ],
     "workflows": [
@@ -195,6 +195,20 @@
       "scope": "scope",
       "description": "Queue a fresh pass over the chat archive so stickers added since the last import are collected.",
       "timeoutMs": 30000
+    }
+  ],
+  "consoleOperations": [
+    {
+      "operationId": "official.sticker-thief.stickerGallery",
+      "access": "read",
+      "authorization": "operator",
+      "description": "List the stickers collected in a scope with their bot-favourite state, for the operator console gallery."
+    },
+    {
+      "operationId": "official.sticker-thief.stickerImage",
+      "access": "read",
+      "authorization": "operator",
+      "description": "Return one collected sticker as the stored WebP so the operator console can show it."
     }
   ],
   "operatorConsole": {
@@ -334,15 +348,16 @@
         "pluginId": "official.sticker-thief",
         "id": "plugin.official.sticker-thief.favoriteOnBotAccount",
         "path": "favoriteOnBotAccount",
-        "label": "Add to bot favourites",
-        "description": "Add every collected sticker to the bot account's favourite stickers, which WhatsApp syncs to the bot account's devices.",
+        "label": "Bot favourites",
+        "description": "Add every collected sticker to the bot account's favourite stickers, which WhatsApp syncs to the bot account's devices, and show the collected stickers.",
         "section": "Sticker Thief",
         "order": 67,
         "schema": {
           "type": "boolean"
         },
         "ui": {
-          "widget": "toggle",
+          "widget": "builder",
+          "builderId": "official.sticker-thief.gallery.v1",
           "helpText": "Add every collected sticker to the bot account's favourite stickers, which WhatsApp syncs to the bot account's devices."
         }
       },

@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const plugin = require('../dist/index.js').default;
-const { collectSticker } = require('../dist/service.js');
+const { collectSticker, favoriteRetryDelayMs } = require('../dist/service.js');
 const { runDigest } = require('../dist/hooks.js');
 const { nextDueAfter } = require('../dist/store.js');
 const { parseWebPInfo } = require('../dist/webp.js');
@@ -528,4 +528,102 @@ test('the re-import action queues a rescan, reports status and is audited; disab
   const [offAction] = plugin.registerExternalActions({ ...off.context, audit: { async record() {} } });
   assert.deepEqual((await offAction.handler({ scopeId: SCOPE })).queued, false);
   assert.equal((await offAction.handler({ scopeId: SCOPE })).reason, 'backfill-disabled');
+});
+
+test('favourite failures back off with doubling delays and clear once the transport accepts again', async () => {
+  const h = setup();
+  for (const salt of ['a', 'b']) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt })));
+  let failing = true;
+  h.context.accountStickers.setFavorite = async (input) => {
+    if (failing) throw new Error('mismatching LTHash (recovery requested from the primary device; retry later)');
+    return { count: input.files.length };
+  };
+  h.jobs.length = 0;
+  const first = await runFavorites(h.context, SCOPE);
+  assert.equal(first.kind, 'deferred');
+  assert.equal(first.attempts, 1);
+  assert.equal(first.retryAt.toISOString(), '2026-11-01T12:05:00.000Z');
+  assert.equal(h.jobs.length, 1);
+  assert.equal(h.jobs[0].dedupeKey, `sticker-thief:favorite:${SCOPE}:retry:1`);
+  assert.equal(h.jobs[0].replaceRetainedTerminalJob, true);
+  assert.deepEqual(h.jobs[0].payload, { retry: 1 });
+  const state = h.db.get('SELECT * FROM favorite_state');
+  assert.equal(state.attempts, 1);
+  assert.equal(state.failing_since, '2026-11-01T12:00:00.000Z');
+  assert.match(state.last_error, /recovery requested/);
+  // New stickers do not queue a competing run while the retry is pending.
+  assert.equal(await scheduleFavorites(h.context, SCOPE), false);
+  assert.equal(h.jobs.length, 1);
+
+  h.setNow('2026-11-01T12:05:01.000Z');
+  const second = await runFavorites(h.context, SCOPE);
+  assert.equal(second.kind, 'deferred');
+  assert.equal(second.attempts, 2);
+  assert.equal(second.retryAt.toISOString(), '2026-11-01T12:15:01.000Z');
+  assert.equal(h.db.get('SELECT failing_since FROM favorite_state').failing_since, '2026-11-01T12:00:00.000Z', 'the waiting period keeps its start');
+
+  failing = false;
+  h.setNow('2026-11-01T12:15:02.000Z');
+  const third = await runFavorites(h.context, SCOPE);
+  assert.equal(third.kind, 'favorited');
+  assert.equal(third.count, 2);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM favorite_state').n, 0);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers WHERE favorited_at IS NULL').n, 0);
+  assert.equal(await scheduleFavorites(h.context, SCOPE), true);
+  assert.deepEqual([1, 2, 3, 4, 5, 9].map(favoriteRetryDelayMs), [5, 10, 20, 40, 60, 60].map(minutes => minutes * 60_000));
+});
+
+test('console operations list the gallery with favourite state and serve stored sticker images', async () => {
+  const h = setup();
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'still' })));
+  h.setNow('2026-11-01T13:00:00.000Z');
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'moving', animated: true })));
+  assert.equal((await runFavorites(h.context, SCOPE)).kind, 'favorited');
+  const consoleContext = (overrides = {}) => ({
+    pluginId: 'official.sticker-thief',
+    assertScope: async (scopeId) => { if (scopeId !== SCOPE) throw new Error('unknown scope'); },
+    openDatabases: () => h.context.databases,
+    configuration: { resolve: async () => ({ enabled: true, favoriteOnBotAccount: true }) },
+    mediaStore: { read: (mediaId) => h.media.read(mediaId) },
+    ...overrides
+  });
+  const ops = plugin.registerConsoleOperations(consoleContext());
+  assert.deepEqual(ops.map(op => op.operationId), ['official.sticker-thief.stickerGallery', 'official.sticker-thief.stickerImage']);
+  const [gallery, image] = ops.map(op => op.handler);
+
+  const page = await gallery({ scopeId: SCOPE, limit: '1' });
+  assert.equal(page.total, 2);
+  assert.deepEqual(page.counts, { collected: 2, favorited: 2, pending: 0 });
+  assert.equal(page.favoritesEnabled, true);
+  assert.equal(page.favoriteState.status, 'idle');
+  assert.equal(page.stickers.length, 1);
+  assert.equal(page.stickers[0].animated, true, 'newest collected first');
+  assert.equal(page.stickers[0].seenCount, 1);
+  assert.equal(page.stickers[0].favoritedAt, '2026-11-01T13:00:00.000Z');
+  assert.equal((await gallery({ scopeId: SCOPE, offset: 1, limit: 1 })).stickers[0].animated, false);
+  assert.equal((await gallery({ scopeId: SCOPE, filter: 'pending' })).total, 0);
+  assert.equal((await gallery({ scopeId: SCOPE, filter: 'favorited' })).total, 2);
+  await assert.rejects(gallery({ scopeId: 'other' }), /unknown scope/);
+
+  const stored = await image({ scopeId: SCOPE, stickerId: String(page.stickers[0].id) });
+  assert.equal(stored.mimeType, 'image/webp');
+  assert.match(stored.sha256, /^[0-9a-f]{64}$/);
+  assert.match(stored.filename, /^[0-9a-f]{16}\.webp$/);
+  assert.ok(Buffer.from(stored.bodyBase64, 'base64').equals(webp({ salt: 'moving', animated: true })));
+  await assert.rejects(image({ scopeId: SCOPE, stickerId: 999 }), /not collected/);
+  await assert.rejects(image({ scopeId: 'other', stickerId: page.stickers[0].id }), /unknown scope/);
+  const [, olderHost] = plugin.registerConsoleOperations(consoleContext({ mediaStore: undefined }));
+  await assert.rejects(olderHost.handler({ scopeId: SCOPE, stickerId: page.stickers[0].id }), /cannot show/);
+
+  // A transport failure shows up as the waiting state the console explains.
+  h.context.accountStickers.setFavorite = async () => { throw new Error('recovery requested; retry later'); };
+  await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'third' })));
+  assert.equal((await runFavorites(h.context, SCOPE)).kind, 'deferred');
+  const waiting = await gallery({ scopeId: SCOPE, filter: 'pending' });
+  assert.equal(waiting.total, 1);
+  assert.equal(waiting.stickers[0].favoritedAt, null);
+  assert.deepEqual(waiting.favoriteState, {
+    status: 'waiting', failingSince: '2026-11-01T13:00:00.000Z', lastError: 'recovery requested; retry later',
+    lastErrorAt: '2026-11-01T13:00:00.000Z', nextRetryAt: '2026-11-01T13:05:00.000Z', attempts: 1
+  });
 });
