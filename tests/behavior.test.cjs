@@ -490,6 +490,8 @@ test('finishing a pass queues the next rescan a day later, and startup rescans',
   assert.deepEqual(rescan.payload, { rescan: true });
   assert.equal(rescan.runAt.getTime() - h.context.now().getTime(), 24 * 60 * 60 * 1000);
   assert.equal(rescan.replaceRetainedTerminalJob, true);
+  // Page keys repeat on every pass, so each page must replace its retained twin.
+  assert.ok(h.jobs.filter(j => /^sticker-thief:backfill:scope-1:d@g\.us:/.test(j.dedupeKey)).every(j => j.replaceRetainedTerminalJob === true), 'page jobs replace retained jobs');
   h.db.run("UPDATE backfill_chats SET done = 1, after_media_id = 'd-0000'");
   await h.hooks.onPluginJob({ jobName: 'sticker-thief.backfill', scopeId: SCOPE, payload: { rescan: true } });
   assert.deepEqual(JSON.parse(JSON.stringify(h.db.all('SELECT after_media_id, done FROM backfill_chats'))), [{ after_media_id: null, done: 0 }], 'the job resets cursors');

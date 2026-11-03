@@ -4,7 +4,7 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "coreApiRange": "^0.3.20",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
