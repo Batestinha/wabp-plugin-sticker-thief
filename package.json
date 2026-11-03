@@ -1,6 +1,6 @@
 {
   "name": "@wabs/plugin-sticker-thief",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "license": "MIT",
   "private": true,
@@ -33,7 +33,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@wabs/plugin-sdk": "file:vendor/wabs-plugin-sdk-0.3.32-9cd6814038f1.tgz",
+    "@wabs/plugin-sdk": "file:vendor/wabs-plugin-sdk-0.3.33-b5b80b668a99.tgz",
     "zod": "3.25.76"
   },
   "devDependencies": {

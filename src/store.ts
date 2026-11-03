@@ -356,3 +356,97 @@ export function dropStickerEverywhere(db: PluginDatabase, stickerId: number): vo
     db.run('DELETE FROM stickers WHERE id = ?', stickerId);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Favourite failures and the operator-console gallery
+// ---------------------------------------------------------------------------
+
+export interface FavoriteStateRow {
+  scope_id: string;
+  failing_since: string;
+  last_error: string;
+  last_error_at: string;
+  next_retry_at: string | null;
+  attempts: number;
+}
+
+export function favoriteState(db: PluginDatabase, scopeId: string): FavoriteStateRow | undefined {
+  return db.get<FavoriteStateRow & Record<string, unknown>>(
+    'SELECT scope_id, failing_since, last_error, last_error_at, next_retry_at, attempts FROM favorite_state WHERE scope_id = ?', scopeId
+  );
+}
+
+/** Records one failed favourite run; the first failure starts the waiting period. */
+export function recordFavoriteFailure(db: PluginDatabase, input: { scopeId: string; error: string; now: Date; retryAt: Date | null }): FavoriteStateRow {
+  const now = input.now.toISOString();
+  db.run(
+    `INSERT INTO favorite_state (scope_id, failing_since, last_error, last_error_at, next_retry_at, attempts) VALUES (?, ?, ?, ?, ?, 1)
+     ON CONFLICT (scope_id) DO UPDATE SET
+       last_error = excluded.last_error, last_error_at = excluded.last_error_at,
+       next_retry_at = excluded.next_retry_at, attempts = attempts + 1`,
+    input.scopeId, now, input.error.slice(0, 2000), now, input.retryAt?.toISOString() ?? null
+  );
+  return favoriteState(db, input.scopeId)!;
+}
+
+export function setFavoriteRetry(db: PluginDatabase, scopeId: string, retryAt: Date | null): void {
+  db.run('UPDATE favorite_state SET next_retry_at = ? WHERE scope_id = ?', retryAt?.toISOString() ?? null, scopeId);
+}
+
+export function clearFavoriteFailure(db: PluginDatabase, scopeId: string): void {
+  db.run('DELETE FROM favorite_state WHERE scope_id = ?', scopeId);
+}
+
+export type GalleryFilter = 'all' | 'favorited' | 'pending';
+
+export interface GalleryStickerRow extends StickerRow {
+  first_seen_at: string;
+  last_seen_at: string;
+  seen_count: number;
+  favorited_at: string | null;
+}
+
+const GALLERY_FILTER_SQL: Record<GalleryFilter, string> = {
+  all: '',
+  favorited: 'AND s.favorited_at IS NOT NULL',
+  pending: 'AND s.favorited_at IS NULL'
+};
+
+export function galleryCounts(db: PluginDatabase, scopeId: string): { collected: number; favorited: number; pending: number } {
+  const row = db.get<{ collected: number; favorited: number }>(
+    `SELECT COUNT(*) AS collected, COALESCE(SUM(CASE WHEN s.favorited_at IS NULL THEN 0 ELSE 1 END), 0) AS favorited
+       FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id WHERE ss.scope_id = ?`, scopeId
+  )!;
+  const collected = Number(row.collected);
+  const favorited = Number(row.favorited);
+  return { collected, favorited, pending: collected - favorited };
+}
+
+/** One page of the scope's stickers, newest collected first, for the operator console. */
+export function listGallery(
+  db: PluginDatabase, input: { scopeId: string; filter: GalleryFilter; offset: number; limit: number }
+): { total: number; rows: GalleryStickerRow[] } {
+  const where = `ss.scope_id = ? ${GALLERY_FILTER_SQL[input.filter]}`;
+  const total = Number(db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id WHERE ${where}`, input.scopeId
+  )!.n);
+  const rows = db.all<GalleryStickerRow & Record<string, unknown>>(
+    `SELECT s.id, s.sha256, s.media_id, s.mime_type, s.size_bytes, s.width, s.height, s.animated, s.favorited_at,
+            ss.first_seen_at, ss.last_seen_at, ss.seen_count
+       FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id
+      WHERE ${where}
+      ORDER BY ss.first_seen_at DESC, s.id DESC LIMIT ? OFFSET ?`,
+    input.scopeId, input.limit, input.offset
+  );
+  return { total, rows };
+}
+
+/** A sticker only if it is collected in the given scope (the console never crosses scopes). */
+export function stickerInScope(db: PluginDatabase, scopeId: string, stickerId: number): GalleryStickerRow | undefined {
+  return db.get<GalleryStickerRow & Record<string, unknown>>(
+    `SELECT s.id, s.sha256, s.media_id, s.mime_type, s.size_bytes, s.width, s.height, s.animated, s.favorited_at,
+            ss.first_seen_at, ss.last_seen_at, ss.seen_count
+       FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id WHERE ss.scope_id = ? AND s.id = ?`,
+    scopeId, stickerId
+  );
+}

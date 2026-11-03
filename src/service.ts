@@ -26,13 +26,18 @@ import {
   STICKER_THIEF_DIGEST_JOB,
   STICKER_THIEF_FAVORITE_JOB,
   FAVORITE_BATCH_SIZE,
-  FAVORITE_BATCH_SPACING_MS
+  FAVORITE_BATCH_SPACING_MS,
+  FAVORITE_RETRY_BASE_MS,
+  FAVORITE_RETRY_MAX_MS
 } from './constants';
 import {
   advanceBackfillChat,
   backfillChat,
   backfillSummary,
+  clearFavoriteFailure,
   completeBackfill,
+  favoriteState,
+  recordFavoriteFailure,
   dropStickerEverywhere,
   isKnownSighting,
   markFavorited,
@@ -465,9 +470,15 @@ function favoritesAllowed(deps: StickerThiefDeps, config: StickerThiefConfig): b
   return Boolean(deps.accountStickers && config.enabled && config.favoriteOnBotAccount);
 }
 
-/** Queues a favourite run for the scope; a pending run absorbs repeated calls. */
+/**
+ * Queues a favourite run for the scope; a pending run absorbs repeated calls, and a
+ * scope that is backing off after a transport failure keeps its scheduled retry.
+ */
 export async function scheduleFavorites(deps: StickerThiefDeps, scopeId: string, delayMs = 5_000): Promise<boolean> {
   if (!favoritesAllowed(deps, await configFor(deps, scopeId))) return false;
+  const db = stickerDatabase(deps);
+  const retryAt = db ? favoriteState(db, scopeId)?.next_retry_at : undefined;
+  if (retryAt && Date.parse(retryAt) > nowFrom(deps).getTime()) return false;
   await enqueue(deps, {
     jobName: STICKER_THIEF_FAVORITE_JOB,
     executionClass: 'maintenance',
@@ -482,7 +493,14 @@ export async function scheduleFavorites(deps: StickerThiefDeps, scopeId: string,
 
 export type FavoriteRunResult =
   | { kind: 'skipped'; reason: string }
-  | { kind: 'favorited'; count: number; more: boolean };
+  | { kind: 'favorited'; count: number; more: boolean }
+  /** The transport refused (for example WhatsApp is waiting for the phone); a retry is queued. */
+  | { kind: 'deferred'; error: string; attempts: number; retryAt: Date };
+
+/** Doubling delays from five minutes up to an hour. */
+export function favoriteRetryDelayMs(attempts: number): number {
+  return Math.min(FAVORITE_RETRY_BASE_MS * 2 ** Math.max(0, Math.min(attempts - 1, 8)), FAVORITE_RETRY_MAX_MS);
+}
 
 /** Favourites the next batch of the scope's stickers on the bot account. */
 export async function runFavorites(deps: StickerThiefDeps, scopeId: string): Promise<FavoriteRunResult> {
@@ -504,8 +522,27 @@ export async function runFavorites(deps: StickerThiefDeps, scopeId: string): Pro
     ids.push(Number(sticker.id));
   }
   if (files.length) {
-    await deps.accountStickers!.setFavorite({ scopeId, files, favorite: true });
+    try {
+      await deps.accountStickers!.setFavorite({ scopeId, files, favorite: true });
+    } catch (error) {
+      const now = nowFrom(deps);
+      const attempts = (favoriteState(db, scopeId)?.attempts ?? 0) + 1;
+      const retryAt = new Date(now.getTime() + favoriteRetryDelayMs(attempts));
+      const message = error instanceof Error ? error.message : String(error);
+      recordFavoriteFailure(db, { scopeId, error: message, now, retryAt });
+      await enqueue(deps, {
+        jobName: STICKER_THIEF_FAVORITE_JOB,
+        executionClass: 'maintenance',
+        scopeId,
+        payload: { retry: attempts },
+        runAt: retryAt,
+        dedupeKey: `sticker-thief:favorite:${scopeId}:retry:${attempts}`,
+        replaceRetainedTerminalJob: true
+      });
+      return { kind: 'deferred', error: message, attempts, retryAt };
+    }
     markFavorited(db, ids, nowFrom(deps));
+    clearFavoriteFailure(db, scopeId);
   }
   const more = pending.length > FAVORITE_BATCH_SIZE;
   if (more) {
