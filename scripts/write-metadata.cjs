@@ -30,6 +30,7 @@ const metadata = {
   cancellation: m.cancellation,
   dependencies: m.dependencies,
   assistant: m.assistant,
+  externalActions: m.externalActions ?? [],
   operatorConsole: {
     configPaths: stickerThiefConfigPaths(),
     controls: stickerThiefControls.map(c => ({ pluginId: m.pluginId, ...c })),

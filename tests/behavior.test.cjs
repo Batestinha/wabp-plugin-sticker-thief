@@ -461,3 +461,65 @@ test('forgetting a favourited sticker removes it from the bot favourites', async
   assert.deepEqual(h.favoriteCalls.map(c => [c.count, c.favorite]), [[1, true], [1, false]]);
   assert.equal(h.media.stored.size, 0);
 });
+
+// --- 0.8.0: archive rescans and the re-import action ------------------------
+
+test('a rescan finds a sticker whose random media id sorts before the cursor; a plain resume does not', async () => {
+  const items = archivedItems('r', 3);
+  const h = setup({ archiveChats: { 'r@g.us': items } });
+  await drainBackfill(h);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers').n, 3);
+  // Arrives later, but its id lands before the saved cursor ('r-0002').
+  items.unshift({ ...archivedItems('a', 1)[0], buffer: webp({ salt: 'late' }) });
+  await startBackfill(h.context, SCOPE);
+  await drainBackfill(h);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers').n, 3, 'resume from the cursor cannot see it');
+  await startBackfill(h.context, SCOPE, { rescan: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.db.all('SELECT after_media_id, done FROM backfill_chats'))), [{ after_media_id: null, done: 0 }], 'cursor cleared');
+  const staged = h.archived.calls.stage.length;
+  await drainBackfill(h);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers').n, 4, 'rescan collects it');
+  assert.equal(h.archived.calls.stage.length, staged + 1, 'known stickers are skipped without staging');
+});
+
+test('finishing a pass queues the next rescan a day later, and startup rescans', async () => {
+  const h = setup({ archiveChats: { 'd@g.us': archivedItems('d', 1) } });
+  await drainBackfill(h);
+  const rescan = h.jobs.find(j => j.dedupeKey === 'sticker-thief:backfill:scope-1:rescan');
+  assert.ok(rescan, 'daily rescan queued');
+  assert.deepEqual(rescan.payload, { rescan: true });
+  assert.equal(rescan.runAt.getTime() - h.context.now().getTime(), 24 * 60 * 60 * 1000);
+  assert.equal(rescan.replaceRetainedTerminalJob, true);
+  h.db.run("UPDATE backfill_chats SET done = 1, after_media_id = 'd-0000'");
+  await h.hooks.onPluginJob({ jobName: 'sticker-thief.backfill', scopeId: SCOPE, payload: { rescan: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.db.all('SELECT after_media_id, done FROM backfill_chats'))), [{ after_media_id: null, done: 0 }], 'the job resets cursors');
+  assert.equal(h.jobs.filter(j => j.dedupeKey === 'sticker-thief:backfill:scope-1:start').length, 1);
+  h.db.run("UPDATE backfill_chats SET done = 1, after_media_id = 'd-0000'");
+  await h.hooks.onRuntimeReady({});
+  assert.equal(h.db.get('SELECT done FROM backfill_chats').done, 0, 'startup rescans');
+});
+
+test('the re-import action queues a rescan, reports status and is audited; disabled scopes refuse', async () => {
+  const h = setup({ archiveChats: { 'e@g.us': archivedItems('e', 2) } });
+  await startBackfill(h.context, SCOPE);
+  await drainBackfill(h);
+  const audits = [];
+  const context = { ...h.context, audit: { async record(entry) { audits.push(entry); } } };
+  const [action] = plugin.registerExternalActions(context);
+  assert.equal(action.actionId, 'official.sticker-thief.reimportArchive');
+  assert.equal(await action.resolveScopeId({ scopeId: SCOPE, confirm: true }), SCOPE);
+  const result = await action.handler({ scopeId: SCOPE, runtimeBindingId: 'bot-1', confirm: true });
+  assert.equal(result.queued, true);
+  assert.equal(result.collected, 2);
+  assert.equal(result.imported, 2);
+  assert.equal(result.pendingFavorites, 2, 'nothing favourited yet in this harness');
+  assert.ok(result.lastCompletedAt);
+  assert.equal(h.db.get('SELECT done FROM backfill_chats').done, 0);
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].action, 'sticker-thief.reimport_archive');
+  await assert.rejects(() => action.handler({ confirm: true }), /scopeId/);
+  const off = setup({ config: { backfillArchive: false }, archiveChats: { 'e@g.us': archivedItems('e', 1) } });
+  const [offAction] = plugin.registerExternalActions({ ...off.context, audit: { async record() {} } });
+  assert.deepEqual((await offAction.handler({ scopeId: SCOPE })).queued, false);
+  assert.equal((await offAction.handler({ scopeId: SCOPE })).reason, 'backfill-disabled');
+});
