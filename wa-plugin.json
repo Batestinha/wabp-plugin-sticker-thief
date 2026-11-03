@@ -4,7 +4,7 @@
   "name": "Sticker Thief",
   "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
   "kind": "managed_group",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "coreApiRange": "^0.3.20",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -188,6 +188,15 @@
       }
     ]
   },
+  "externalActions": [
+    {
+      "actionId": "official.sticker-thief.reimportArchive",
+      "access": "mutation",
+      "scope": "scope",
+      "description": "Queue a fresh pass over the chat archive so stickers added since the last import are collected.",
+      "timeoutMs": 30000
+    }
+  ],
   "operatorConsole": {
     "configPaths": [
       "enabled",
@@ -342,7 +351,7 @@
         "id": "plugin.official.sticker-thief.backfillArchive",
         "path": "backfillArchive",
         "label": "Import from chat archive",
-        "description": "Also collect stickers already stored in this scope's chat archive.",
+        "description": "Also collect stickers already stored in this scope's chat archive. The archive is listed again at every startup and once a day; use the action to run that now.",
         "section": "Sticker Thief",
         "order": 65,
         "schema": {
@@ -350,8 +359,11 @@
         },
         "ui": {
           "widget": "toggle",
-          "helpText": "Also collect stickers already stored in this scope's chat archive."
-        }
+          "helpText": "Also collect stickers already stored in this scope's chat archive. The archive is listed again at every startup and once a day; use the action to run that now."
+        },
+        "relatedActionIds": [
+          "official.sticker-thief.reimportArchive"
+        ]
       },
       {
         "pluginId": "official.sticker-thief",

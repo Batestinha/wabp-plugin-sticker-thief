@@ -22,6 +22,7 @@ import {
   scheduleFavorites,
   scheduleDigest,
   selectDeliveryIds,
+  isBackfillRescanJob,
   startBackfill,
   startDelivery,
   stickerDatabase,
@@ -46,7 +47,7 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
         await scheduleDigest(context, subscription);
       }
       for (const scope of await context.listEnabledScopes?.() ?? []) {
-        await startBackfill(context, scope.scopeId).catch((error: unknown) => {
+        await startBackfill(context, scope.scopeId, { rescan: true }).catch((error: unknown) => {
           context.logger?.warn({ scopeId: scope.scopeId, error: String(error) }, 'Sticker Thief could not start the archive backfill');
         });
         // Catches up stickers collected before favourites existed or while they failed.
@@ -73,7 +74,8 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
         return;
       }
       if (job.jobName === STICKER_THIEF_BACKFILL_JOB) {
-        await runBackfillPage(context, job.scopeId);
+        if (isBackfillRescanJob(job.payload)) await startBackfill(context, job.scopeId, { rescan: true });
+        else await runBackfillPage(context, job.scopeId);
       }
     }
   };

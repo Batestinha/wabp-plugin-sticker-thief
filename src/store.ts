@@ -186,6 +186,36 @@ export function advanceBackfillChat(
   );
 }
 
+/** Forgets every chat cursor so the next run lists the whole archive again. */
+export function resetBackfillChats(db: PluginDatabase, scopeId: string, now: Date): number {
+  return db.run('UPDATE backfill_chats SET after_media_id = NULL, done = 0, updated_at = ? WHERE scope_id = ?', now.toISOString(), scopeId).changes;
+}
+
+export interface BackfillSummary {
+  collected: number;
+  imported: number;
+  chats: number;
+  chatsInProgress: number;
+  lastCompletedAt: string | null;
+  pendingFavorites: number;
+}
+
+export function backfillSummary(db: PluginDatabase, scopeId: string): BackfillSummary {
+  const chats = db.get<{ n: number; open: number; imported: number }>(
+    'SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END), 0) AS open, COALESCE(SUM(imported), 0) AS imported FROM backfill_chats WHERE scope_id = ?', scopeId
+  )!;
+  return {
+    collected: Number(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM sticker_scopes WHERE scope_id = ?', scopeId)!.n),
+    imported: Number(chats.imported),
+    chats: Number(chats.n),
+    chatsInProgress: Number(chats.open),
+    lastCompletedAt: db.get<{ at: string | null }>('SELECT completed_at AS at FROM backfill_scopes WHERE scope_id = ?', scopeId)?.at ?? null,
+    pendingFavorites: Number(db.get<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM stickers s JOIN sticker_scopes ss ON ss.sticker_id = s.id WHERE ss.scope_id = ? AND s.favorited_at IS NULL', scopeId
+    )!.n)
+  };
+}
+
 export function completeBackfill(db: PluginDatabase, scopeId: string, now: Date): void {
   db.run('UPDATE backfill_scopes SET completed_at = ? WHERE scope_id = ?', now.toISOString(), scopeId);
 }

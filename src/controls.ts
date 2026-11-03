@@ -1,4 +1,5 @@
 import { stickerThiefConfigSchema } from './config';
+import { STICKER_THIEF_REIMPORT_ACTION_ID } from './constants';
 
 /** Package-level console metadata; written into wa-plugin.json by scripts/write-metadata.cjs. */
 export interface StickerThiefControl {
@@ -10,6 +11,7 @@ export interface StickerThiefControl {
   order: number;
   schema: Record<string, unknown>;
   ui: Record<string, unknown>;
+  relatedActionIds?: string[] | undefined;
 }
 
 function control(path: string, label: string, description: string, order: number, schema: Record<string, unknown>, widget: string): StickerThiefControl {
@@ -34,7 +36,10 @@ export const stickerThiefControls: StickerThiefControl[] = [
   control('manualSendLimit', 'Stickers per request', 'Stickers sent for /stickers send or /stickers random without a number; 0 sends all of them.', 60, { type: 'number', min: 0, max: 100_000 }, 'number'),
   control('deliverAsPacks', 'Send as sticker packs', 'Deliver stickers as native WhatsApp sticker packs of up to 60 (stickers are resized to fit the WhatsApp pack rules; leftovers of 1-2 are sent individually). Turn off to send every sticker individually.', 62, { type: 'boolean' }, 'toggle'),
   control('favoriteOnBotAccount', 'Add to bot favourites', 'Add every collected sticker to the bot account\'s favourite stickers, which WhatsApp syncs to the bot account\'s devices.', 67, { type: 'boolean' }, 'toggle'),
-  control('backfillArchive', 'Import from chat archive', 'Also collect stickers already stored in this scope\'s chat archive.', 65, { type: 'boolean' }, 'toggle'),
+  {
+    ...control('backfillArchive', 'Import from chat archive', 'Also collect stickers already stored in this scope\'s chat archive. The archive is listed again at every startup and once a day; use the action to run that now.', 65, { type: 'boolean' }, 'toggle'),
+    relatedActionIds: [STICKER_THIEF_REIMPORT_ACTION_ID]
+  },
   control('defaultCadence', 'Default cadence', 'Digest cadence used when a member subscribes without choosing one.', 70,
     { type: 'enum', enum: [{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }] }, 'segmented')
 ];

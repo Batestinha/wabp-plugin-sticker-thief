@@ -1,6 +1,6 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.7.0';
+export const STICKER_THIEF_VERSION = '0.8.0';
 export const STICKER_THIEF_CORE_API_RANGE = '^0.3.20';
 export const STICKER_THIEF_DATABASE = 'stickers';
 export const STICKER_THIEF_DIGEST_JOB = 'sticker-thief.digest';
@@ -20,6 +20,9 @@ export const STICKER_PACK_SPACING_MS = 15_000;
 export const STICKER_PACK_PUBLISHER = 'Sticker Thief';
 export const BACKFILL_PAGE_SIZE = 50;
 export const BACKFILL_PAGE_SPACING_MS = 5_000;
+/** Archive media ids are random, so new stickers can only be found by listing again. */
+export const BACKFILL_RESCAN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+export const STICKER_THIEF_REIMPORT_ACTION_ID = 'official.sticker-thief.reimportArchive';
 export const STICKER_THIEF_MANAGE_PERMISSION = 'sticker-thief.manage';
 export const STICKER_MIME_TYPE = 'image/webp';
 

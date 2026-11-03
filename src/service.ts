@@ -12,6 +12,7 @@ import { parseStickerThiefConfig, type StickerThiefConfig } from './config';
 import {
   BACKFILL_PAGE_SIZE,
   BACKFILL_PAGE_SPACING_MS,
+  BACKFILL_RESCAN_INTERVAL_MS,
   DELIVERY_BATCH_SIZE,
   DELIVERY_BATCH_SPACING_MS,
   STICKER_MIME_TYPE,
@@ -30,6 +31,7 @@ import {
 import {
   advanceBackfillChat,
   backfillChat,
+  backfillSummary,
   completeBackfill,
   dropStickerEverywhere,
   isKnownSighting,
@@ -39,10 +41,12 @@ import {
   recordKnownSticker,
   recordSticker,
   requestBackfill,
+  resetBackfillChats,
   selectStickers,
   stickersByIds,
   type RecordStickerResult,
-  type SubscriptionRow
+  type SubscriptionRow,
+  type BackfillSummary
 } from './store';
 import { parseWebPInfo } from './webp';
 
@@ -357,13 +361,17 @@ function backfillAllowed(deps: StickerThiefDeps, config: StickerThiefConfig): bo
  * Starts (or, on restart, resumes) the scope's archive backfill. Chats already
  * finished are skipped quickly, so re-running also picks up newly covered chats.
  */
-export async function startBackfill(deps: StickerThiefDeps, scopeId: string, options: { onlyFirstTime?: boolean } = {}): Promise<boolean> {
+/** Queues an archive import. A rescan lists every chat again: archive media ids are
+ * random, so stickers added since the last pass cannot be found from a cursor. Known
+ * stickers are skipped by stanza id and hash, so a rescan reads metadata only. */
+export async function startBackfill(deps: StickerThiefDeps, scopeId: string, options: { onlyFirstTime?: boolean; rescan?: boolean } = {}): Promise<boolean> {
   const db = stickerDatabase(deps);
   if (!db) return false;
   if (options.onlyFirstTime && db.get('SELECT 1 AS hit FROM backfill_scopes WHERE scope_id = ?', scopeId)) return false;
   if (!backfillAllowed(deps, await configFor(deps, scopeId))) return false;
   const first = requestBackfill(db, scopeId, nowFrom(deps));
   if (options.onlyFirstTime && !first) return false;
+  if (options.rescan) resetBackfillChats(db, scopeId, nowFrom(deps));
   await enqueue(deps, {
     jobName: STICKER_THIEF_BACKFILL_JOB,
     executionClass: 'maintenance',
@@ -420,7 +428,30 @@ export async function runBackfillPage(deps: StickerThiefDeps, scopeId: string): 
     return { kind: 'page', chatId, listed: items.length, imported, chatDone };
   }
   completeBackfill(db, scopeId, nowFrom(deps));
+  // The next pass finds stickers that arrived while the bot was not listening.
+  await enqueue(deps, {
+    jobName: STICKER_THIEF_BACKFILL_JOB,
+    executionClass: 'maintenance',
+    scopeId,
+    payload: { rescan: true },
+    runAt: new Date(nowFrom(deps).getTime() + BACKFILL_RESCAN_INTERVAL_MS),
+    dedupeKey: `sticker-thief:backfill:${scopeId}:rescan`,
+    replaceRetainedTerminalJob: true
+  });
   return { kind: 'done' };
+}
+
+export function isBackfillRescanJob(payload: unknown): boolean {
+  return typeof payload === 'object' && payload !== null && (payload as { rescan?: unknown }).rescan === true;
+}
+
+/** Operator request: list the archive again now and report where things stand. */
+export async function reimportArchive(deps: StickerThiefDeps, scopeId: string): Promise<{ queued: boolean; reason?: string } & Partial<BackfillSummary>> {
+  const db = stickerDatabase(deps);
+  if (!db) return { queued: false, reason: 'storage-unavailable' };
+  if (!backfillAllowed(deps, await configFor(deps, scopeId))) return { queued: false, reason: 'backfill-disabled', ...backfillSummary(db, scopeId) };
+  const queued = await startBackfill(deps, scopeId, { rescan: true });
+  return { queued, ...backfillSummary(db, scopeId) };
 }
 
 // ---------------------------------------------------------------------------

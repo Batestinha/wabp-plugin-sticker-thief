@@ -10,6 +10,7 @@ import {
   STICKER_THIEF_MANAGE_PERMISSION,
   STICKER_THIEF_NAMESPACE as ns,
   STICKER_THIEF_PLUGIN_ID,
+  STICKER_THIEF_REIMPORT_ACTION_ID,
   STICKER_THIEF_VERSION
 } from './constants';
 import { stickerThiefMessages } from './messages';
@@ -80,6 +81,13 @@ export const stickerThiefManifest: PluginManifest = {
   requiredBotCapabilities: [],
   configSchema: stickerThiefConfigSchema,
   dangerousActions: [],
+  externalActions: [{
+    actionId: STICKER_THIEF_REIMPORT_ACTION_ID,
+    access: 'mutation',
+    scope: 'scope',
+    description: 'Queue a fresh pass over the chat archive so stickers added since the last import are collected.',
+    timeoutMs: 30_000
+  }],
   backgroundJobs: [STICKER_THIEF_DIGEST_JOB, STICKER_THIEF_DELIVER_JOB, STICKER_THIEF_BACKFILL_JOB, STICKER_THIEF_FAVORITE_JOB],
   databases: [{ name: STICKER_THIEF_DATABASE, engine: 'sqlite', scope: 'account', migrations: 'migrations/stickers' }],
   dataVersion: '3',
