@@ -671,6 +671,8 @@ test('manual delivery announces privately before the first pack and schedules fo
     assert.deepEqual(result.pluginActions.map(a => a.type), ['message.sendText', 'message.sendStickerPack', 'plugin.enqueueJob']);
     const [intro, pack, continuation] = result.pluginActions;
     assert.equal(intro.chatId, 'alice@lid');
+    assert.equal(intro.abortBatchOnFailure, true);
+    assert.equal(pack.abortBatchOnFailure, true);
     assert.equal(intro.requiredRemoteChatId, intro.chatId, 'transport-acknowledged text, not asynchronous outbox');
     assert.match(intro.text, /sendingPacks.*"count":114.*"packs":2/);
     assert.match(intro.idempotencyKey, /^sticker-thief:[0-9a-f-]{36}:introduction$/);
