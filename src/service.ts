@@ -17,7 +17,6 @@ import {
   DELIVERY_BATCH_SPACING_MS,
   STICKER_MIME_TYPE,
   STICKER_PACK_MAX,
-  STICKER_PACK_MIN,
   STICKER_PACK_PUBLISHER,
   STICKER_PACK_SPACING_MS,
   STICKER_THIEF_BACKFILL_JOB,
@@ -149,9 +148,9 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
 
 // ---------------------------------------------------------------------------
 // Delivery: no overall cap. A request is planned up front into batches that
-// follow-up jobs send one at a time: native sticker packs (up to 60 stickers,
-// still and animated kept apart) or, for leftovers and when packs are off,
-// single stickers in groups of DELIVERY_BATCH_SIZE.
+// follow-up jobs send one at a time: full native sticker packs (up to 60
+// stickers, still and animated together) or, when packs are off, single
+// stickers in groups of DELIVERY_BATCH_SIZE.
 // ---------------------------------------------------------------------------
 
 export interface DeliverySelection {
@@ -192,23 +191,18 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Plans the whole delivery: packs per sticker kind, small leftovers individually.
+ * Fills each native user-created pack before starting the next one, preserving
+ * selection order. This transport supports 1-60 stickers with per-sticker
+ * animation metadata; the third-party sticker-app import restrictions do not
+ * apply here, so splitting by animation or sending small remainders separately
+ * would create unnecessary messages.
  * Since core API 0.3.19 the host resizes and recompresses stickers to WhatsApp's
  * pack rules, so every sticker can go into a pack.
  */
 export function planDeliveryBatches(db: PluginDatabase, scopeId: string, stickerIds: number[], asPacks: boolean): DeliveryBatch[] {
   if (!asPacks) return chunk(stickerIds, DELIVERY_BATCH_SIZE).map((ids) => ({ pack: false, ids }));
   const rows = stickersByIds(db, scopeId, stickerIds);
-  const batches: DeliveryBatch[] = [];
-  const singles: number[] = [];
-  for (const animated of [0, 1]) {
-    const ids = rows.filter((row) => Number(row.animated) === animated).map((row) => Number(row.id));
-    for (const group of chunk(ids, STICKER_PACK_MAX)) {
-      if (group.length >= STICKER_PACK_MIN) batches.push({ pack: true, ids: group });
-      else singles.push(...group);
-    }
-  }
-  return [...batches, ...chunk(singles, DELIVERY_BATCH_SIZE).map((ids) => ({ pack: false, ids }))];
+  return chunk(rows.map((row) => Number(row.id)), STICKER_PACK_MAX).map((ids) => ({ pack: true, ids }));
 }
 
 export function parseDeliveryPayload(payload: unknown): DeliveryJobPayload | undefined {

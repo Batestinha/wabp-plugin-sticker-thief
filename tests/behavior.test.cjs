@@ -95,7 +95,8 @@ test('subscribing schedules a digest that sends a header plus new stickers and r
 
   h.setNow('2026-11-08T12:00:05.000Z');
   const actions = await runDigest(h.context, { ...job, scopeId: SCOPE, managementMode: 'ASSIST' });
-  assert.deepEqual(actions.map(action => action.type), ['message.sendText', 'message.sendSticker', 'message.sendSticker']);
+  assert.deepEqual(actions.map(action => action.type), ['message.sendText', 'message.sendStickerPack']);
+  assert.equal(actions[1].pack.stickers.length, 2);
   assert.match(actions[0].text, /digestHeader.*"count":2/);
   assert.equal(h.jobs.length, 2);
   assert.equal(h.jobs[1].runAt.toISOString(), '2026-11-15T12:00:00.000Z');
@@ -105,7 +106,8 @@ test('subscribing schedules a digest that sends a header plus new stickers and r
   // The next digest sends only the remaining sticker.
   h.setNow('2026-11-15T12:00:00.000Z');
   const second = await runDigest(h.context, { ...h.jobs[1], scopeId: SCOPE, managementMode: 'ASSIST' });
-  assert.equal(second.filter(action => action.type === 'message.sendSticker').length, 1);
+  assert.deepEqual(second.map(action => action.type), ['message.sendText', 'message.sendStickerPack']);
+  assert.equal(second[1].pack.stickers.length, 1);
 });
 
 test('digests stop for members who left and are skipped (but kept) in OBSERVE scopes', async () => {
@@ -295,7 +297,7 @@ test('backfills every covered chat from the archive in pages and dedupes against
   assert.match((await h.command('status')).text, /"total":54.*"archived":54/);
   const first = (await h.command('send', { args: ['1'] })).pluginActions[0];
   const oldest = h.db.get("SELECT s.sha256 FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id ORDER BY ss.first_seen_at LIMIT 1").sha256;
-  assert.ok(first.file.filename.startsWith(oldest.slice(0, 16)));
+  assert.ok(first.pack.stickers[0].file.filename.startsWith(oldest.slice(0, 16)));
 });
 
 test('backfill uses the archive hash to skip staging stickers already collected, and respects forgotten stickers', async () => {
@@ -332,7 +334,7 @@ test('backfill starts once per scope on the first message, on subscribe, and on 
 
 // --- 0.3.0: native sticker packs -------------------------------------------
 
-test('delivers as sticker packs of up to 60, still and animated apart, leftovers individually', async () => {
+test('fills mixed sticker packs to 60 before starting the next pack', async () => {
   const h = setup();
   for (let i = 0; i < 122; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `p${i}` })));
   for (let i = 0; i < 4; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `a${i}`, animated: true })));
@@ -351,34 +353,55 @@ test('delivers as sticker packs of up to 60, still and animated apart, leftovers
   assert.equal(job.runAt.getTime() - Date.parse('2026-11-01T12:00:00.000Z'), 15_000);
   const batches = await drainDeliveries(h);
   const shape = batches.map(b => b.map(a => a.type === 'message.sendStickerPack' ? `pack:${a.pack.stickers.length}` : 'single').join(','));
-  // 122 still -> 60 + 60 + 2 left over; 4 animated -> one pack of 4; the 2 leftovers go individually.
-  assert.deepEqual(shape, ['pack:60', 'pack:4', 'single,single']);
-  const animatedPack = batches[1][0];
+  assert.deepEqual(shape, ['pack:60', 'pack:6']);
+  const mixedPack = batches[1][0];
   const animatedShas = new Set(h.db.all('SELECT sha256 FROM stickers WHERE animated = 1').map(r => r.sha256.slice(0, 16)));
-  assert.ok(animatedPack.pack.stickers.every(s => animatedShas.has(s.file.filename.slice(0, 16))), 'animated pack holds only animated stickers');
-  assert.match(animatedPack.pack.name, /\(3\/3\)$/);
+  assert.equal(mixedPack.pack.stickers.filter(s => animatedShas.has(s.file.filename.slice(0, 16))).length, 4);
+  assert.match(mixedPack.pack.name, /\(3\/3\)$/);
+  const filenames = [pack, ...batches.flat()].flatMap(action => action.pack.stickers.map(s => s.file.filename));
+  assert.deepEqual(filenames, h.db.all('SELECT sha256 FROM stickers ORDER BY id').map(r => r.sha256.slice(0, 16) + '.webp'));
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 126);
 });
 
-test('a single small pack is not numbered and two stickers go out individually', async () => {
+test('a single small pack is not numbered and two remaining stickers stay in a pack', async () => {
   const h = setup();
   for (let i = 0; i < 5; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `q${i}` })));
   const res = await h.command('send', { args: ['3'] });
   assert.equal(res.pluginActions[0].type, 'message.sendStickerPack');
   assert.match(res.pluginActions[0].pack.name, /packName.*2026-11-01"\}$/);
   const two = await h.command('send');
-  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendSticker', 'message.sendSticker']);
-  assert.match(two.text, /\.sending \{"count":2/);
+  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendStickerPack']);
+  assert.equal(two.pluginActions[0].pack.stickers.length, 2);
+  assert.match(two.text, /sendingPacks.*"count":2.*"packs":1/);
 });
 
-test('digests arrive as packs after the header', async () => {
+test('the 14 still and 11 animated sticker digest arrives as one pack after the header', async () => {
   const h = setup({ members: ['alice'] });
-  for (let i = 0; i < 5; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `g${i}` })));
+  for (let i = 0; i < 25; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `g${i}`, animated: i >= 14 })));
   await h.command('subscribe', { args: ['daily'] });
   h.setNow('2026-11-02T12:00:00.000Z');
   const actions = await runDigest(h.context, { ...h.jobs[0], scopeId: SCOPE, managementMode: 'ASSIST' });
   assert.deepEqual(actions.map(a => a.type), ['message.sendText', 'message.sendStickerPack']);
-  assert.equal(actions[1].pack.stickers.length, 5);
+  assert.equal(actions[1].pack.stickers.length, 25);
+  assert.doesNotMatch(actions[1].pack.name, /\(\d+\/\d+\)$/);
+  assert.deepEqual(await drainDeliveries(h), []);
+  assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 25);
+});
+
+test('native pack boundaries use the minimum number of packs without losing small remainders', async () => {
+  for (const count of [1, 2, 59, 60, 61, 62, 120, 121]) {
+    const h = setup();
+    for (let i = 0; i < count; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `boundary${i}`, animated: i % 2 === 1 })));
+    const first = await h.command('send');
+    const actions = [...first.pluginActions, ...(await drainDeliveries(h)).flat()];
+    assert.equal(actions.length, Math.ceil(count / 60), `pack count for ${count} stickers`);
+    for (const [index, action] of actions.entries()) {
+      assert.equal(action.type, 'message.sendStickerPack');
+      assert.equal(action.pack.stickers.length, Math.min(60, count - index * 60));
+    }
+    assert.equal(new Set(actions.flatMap(action => action.pack.stickers.map(s => s.file.filename))).size, count);
+    assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, count);
+  }
 });
 
 // --- 0.4.0: pack rules and resend -----------------------------------------
@@ -407,7 +430,8 @@ test('resend sends the most recently received stickers again, in collection orde
   assert.deepEqual(all.pluginActions[0].pack.stickers.map(s => s.file.filename), firstFilenames);
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 5, 'recorded again after resending');
   const two = await h.command('resend', { args: ['2'] });
-  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendSticker', 'message.sendSticker']);
+  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendStickerPack']);
+  assert.equal(two.pluginActions[0].pack.stickers.length, 2);
   assert.match((await h.command('send')).text, /noNewStickers/);
   assert.match((await h.command('resend', { identityId: 'bob' })).text, /nothingToResend/, 'per member');
 });
