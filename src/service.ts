@@ -275,6 +275,7 @@ export async function deliverBatch(
     packsSent += 1;
     actions.push({
       type: 'message.sendStickerPack',
+      abortBatchOnFailure: true,
       chatId: input.chatId,
       pack: {
         id: `${input.deliveryId}-${packsSent}`,

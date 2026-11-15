@@ -151,6 +151,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
         // Pin the private destination and await transport delivery. An ordinary
         // text action uses the asynchronous outbox and could arrive after a pack.
         requiredRemoteChatId: call.deliveryChatId,
+        abortBatchOnFailure: true,
         text: ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }),
         idempotencyKey: `sticker-thief:${delivery.deliveryId}:introduction`
       }, ...actions]
