@@ -131,24 +131,31 @@ function harness({ config = {}, members, archiveChats, coveredChats } = {}) {
     i18n: { translatorForIdentity: async () => (key, params) => `${key}${params ? ' ' + JSON.stringify(params) : ''}` },
     router: { register(namespace, sub, metadata, handler) { handlers.set(`${namespace} ${sub}`, { metadata, handler }); } }
   };
+  async function executeActions(actions = []) {
+    for (const action of actions) {
+      if (action.type === 'plugin.enqueueJob') await context.enqueuePluginJob(action);
+    }
+  }
   return {
-    db, files, media, jobs, handlers, context, archived, favoriteCalls,
+    db, files, media, jobs, handlers, context, archived, favoriteCalls, executeActions,
     setNow(date) { clock = new Date(date); },
     addSticker(buffer, overrides = {}) {
       const message = stickerMessage(overrides);
       files.set(message.id, { buffer, mimeType: overrides.mimeType ?? 'image/webp' });
       return message;
     },
-    async command(name, { args = [], identityId = 'alice', scopeId = 'scope-1', managementMode = 'ASSIST', replyTo } = {}) {
+    async command(name, { args = [], identityId = 'alice', scopeId = 'scope-1', managementMode = 'ASSIST', replyTo, execute = true } = {}) {
       const entry = handlers.get(`stickers ${name}`);
       if (!entry) throw new Error('unregistered command ' + name);
-      return entry.handler({
+      const result = await entry.handler({
         message: { id: 'cmd', chatId: 'group@g.us', context: 'group', ...(replyTo ? { replyTo: { messageId: replyTo } } : {}) },
         command: { namespace: 'stickers', subcommand: name, args },
         actor: { wid: `${identityId}@lid`, fromMe: false, identityAddress: { identityId, deliveryChatId: `${identityId}@lid` } },
         scopeId, managementMode, locale: 'en',
         t: (key, params) => `${key}${params ? ' ' + JSON.stringify(params) : ''}`
       });
+      if (execute) await executeActions(result.pluginActions);
+      return { ...result, stickerActions: result.pluginActions?.filter(action => ['message.sendSticker', 'message.sendStickerPack'].includes(action.type)) };
     }
   };
 }

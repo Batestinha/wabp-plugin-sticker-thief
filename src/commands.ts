@@ -142,7 +142,19 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     const actions = delivery ? await deliverBatch(deps, db, delivery) : [];
     if (!delivery || !actions.length) return undefined;
     const key = delivery.packCount ? `${ns}.sendingPacks` : delivery.batches.length > 1 ? `${ns}.sendingBatched` : `${ns}.sending`;
-    return reply(ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }), { pluginActions: actions });
+    return {
+      handled: true,
+      response: { kind: 'none' },
+      pluginActions: [{
+        type: 'message.sendText',
+        chatId: call.deliveryChatId,
+        // Pin the private destination and await transport delivery. An ordinary
+        // text action uses the asynchronous outbox and could arrive after a pack.
+        requiredRemoteChatId: call.deliveryChatId,
+        text: ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }),
+        idempotencyKey: `sticker-thief:${delivery.deliveryId}:introduction`
+      }, ...actions]
+    };
   }
 
   async function prepared(ctx: CommandContext): Promise<{ call: Invocation; config: StickerThiefConfig; db: PluginDatabase } | CommandResult> {

@@ -53,22 +53,22 @@ test('manual send delivers unseen stickers privately as native stickers, once ea
   const h = setup({ config: { deliverAsPacks: false } });
   for (const salt of ['a', 'b', 'c']) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt })));
   const first = await h.command('send', { args: ['2'] });
-  assert.equal(first.pluginActions.length, 2);
-  for (const action of first.pluginActions) {
+  assert.equal(first.stickerActions.length, 2);
+  for (const action of first.stickerActions) {
     assert.equal(action.type, 'message.sendSticker');
     assert.equal(action.chatId, 'alice@lid');
     assert.equal(action.file.mimeType, 'image/webp');
     assert.ok(Buffer.isBuffer(action.file.buffer));
     assert.match(action.idempotencyKey, /^sticker-thief:[0-9a-f-]{36}:[0-9a-f]{64}$/);
   }
-  assert.equal((await h.command('send')).pluginActions.length, 1);
+  assert.equal((await h.command('send')).stickerActions.length, 1);
   const none = await h.command('send');
-  assert.equal(none.pluginActions, undefined);
+  assert.equal(none.stickerActions, undefined);
   assert.match(none.text, /noNewStickers.*"total":3/);
   // Another member still gets everything.
-  assert.equal((await h.command('send', { identityId: 'bob' })).pluginActions.length, 3);
+  assert.equal((await h.command('send', { identityId: 'bob' })).stickerActions.length, 3);
   // Random ignores what was already seen.
-  assert.equal((await h.command('random', { args: ['5'] })).pluginActions.length, 3);
+  assert.equal((await h.command('random', { args: ['5'] })).stickerActions.length, 3);
 });
 
 test('uses the configured limit only without a number, hides animated stickers when configured and refuses OBSERVE scopes', async () => {
@@ -78,8 +78,8 @@ test('uses the configured limit only without a number, hides animated stickers w
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'moving', animated: true })));
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers WHERE animated = 1').n, 1);
   assert.match((await h.command('send', { managementMode: 'OBSERVE' })).text, /observeOnly/);
-  assert.equal((await h.command('send')).pluginActions.length, 1, 'configured limit');
-  assert.equal((await h.command('send', { args: ['10'] })).pluginActions.length, 1, 'only one still unseen');
+  assert.equal((await h.command('send')).stickerActions.length, 1, 'configured limit');
+  assert.equal((await h.command('send', { args: ['10'] })).stickerActions.length, 1, 'only one still unseen');
   assert.match((await h.command('send')).text, /noNewStickers/);
 });
 
@@ -163,7 +163,7 @@ test('forget removes a quoted sticker from the scope, deletes orphaned media and
   assert.equal(h.media.stored.size, 1);
 
   const stillThere = await h.command('send', { scopeId: 'scope-2' });
-  assert.equal(stillThere.pluginActions.length, 1);
+  assert.equal(stillThere.stickerActions.length, 1);
   const message2 = h.db.get("SELECT stanza_id FROM sticker_sightings WHERE scope_id = 'scope-2'").stanza_id;
   await h.command('forget', { scopeId: 'scope-2', replyTo: `false_group@g.us_${message2}_x@lid` });
   assert.equal(h.media.stored.size, 0, 'orphaned media deleted');
@@ -175,7 +175,7 @@ test('stickers whose media vanished are dropped instead of failing the send', as
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'a' })));
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'b' })));
   h.media.stored.delete([...h.media.stored.keys()][0]);
-  assert.equal((await h.command('send')).pluginActions.length, 1);
+  assert.equal((await h.command('send')).stickerActions.length, 1);
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM stickers').n, 1);
 });
 
@@ -208,7 +208,9 @@ async function drainDeliveries(h, scopeId = SCOPE, managementMode = 'ASSIST') {
   const batches = [];
   for (let job; (job = h.jobs.find(j => j.jobName === 'sticker-thief.deliver' && !j.done));) {
     job.done = true;
-    batches.push(await runDeliveryBatch(h.context, { ...job, scopeId, managementMode }));
+    const actions = await runDeliveryBatch(h.context, { ...job, scopeId, managementMode });
+    await h.executeActions(actions);
+    batches.push(actions?.filter(action => action.type !== 'plugin.enqueueJob'));
   }
   return batches;
 }
@@ -217,14 +219,14 @@ test('sends every unseen sticker without a cap, 10 per batch through follow-up j
   const h = setup({ config: { deliverAsPacks: false } });
   for (let i = 0; i < 25; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `s${i}` })));
   const first = await h.command('send');
-  assert.equal(first.pluginActions.length, 10);
-  assert.match(first.text, /sendingBatched.*"count":25/);
+  assert.equal(first.stickerActions.length, 10);
+  assert.match(first.pluginActions[0].text, /sendingBatched.*"count":25/);
   const [job] = h.jobs.filter(j => j.jobName === 'sticker-thief.deliver');
   assert.equal(job.payload.batches.flatMap(b => b.ids).length, 15);
   assert.equal(job.runAt.getTime() - Date.parse('2026-11-01T12:00:00.000Z'), 30_000);
   const batches = await drainDeliveries(h);
   assert.deepEqual(batches.map(b => b.length), [10, 5]);
-  const keys = new Set([first, ...batches.map(b => ({ pluginActions: b }))].flatMap(r => r.pluginActions.map(a => a.idempotencyKey)));
+  const keys = new Set([first, ...batches.map(b => ({ stickerActions: b }))].flatMap(r => r.stickerActions.map(a => a.idempotencyKey)));
   assert.equal(keys.size, 25);
   assert.equal(new Set([...keys].map(k => k.split(':')[1])).size, 1, 'one delivery id per request');
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 25);
@@ -234,8 +236,8 @@ test('sends every unseen sticker without a cap, 10 per batch through follow-up j
 test('repeat random requests use fresh idempotency keys so WhatsApp does not drop them', async () => {
   const h = setup();
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'only' })));
-  const a = (await h.command('random')).pluginActions[0].idempotencyKey;
-  const b = (await h.command('random')).pluginActions[0].idempotencyKey;
+  const a = (await h.command('random')).stickerActions[0].idempotencyKey;
+  const b = (await h.command('random')).stickerActions[0].idempotencyKey;
   assert.notEqual(a, b);
 });
 
@@ -247,6 +249,7 @@ test('digests send everything unseen in batches and stop follow-ups in OBSERVE s
   const actions = await runDigest(h.context, { ...h.jobs[0], scopeId: SCOPE, managementMode: 'ASSIST' });
   assert.match(actions[0].text, /digestHeader.*"count":12/);
   assert.equal(actions.filter(a => a.type === 'message.sendSticker').length, 10);
+  await h.executeActions(actions);
   assert.equal(await drainDeliveries(h, SCOPE, 'OBSERVE').then(b => b[0]), undefined);
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 10);
 });
@@ -295,7 +298,7 @@ test('backfills every covered chat from the archive in pages and dedupes against
   assert.equal(h.archived.calls.stage.length, staged);
   // Status reports the import; oldest archived stickers are sent first.
   assert.match((await h.command('status')).text, /"total":54.*"archived":54/);
-  const first = (await h.command('send', { args: ['1'] })).pluginActions[0];
+  const first = (await h.command('send', { args: ['1'] })).stickerActions[0];
   const oldest = h.db.get("SELECT s.sha256 FROM sticker_scopes ss JOIN stickers s ON s.id = ss.sticker_id ORDER BY ss.first_seen_at LIMIT 1").sha256;
   assert.ok(first.pack.stickers[0].file.filename.startsWith(oldest.slice(0, 16)));
 });
@@ -339,9 +342,9 @@ test('fills mixed sticker packs to 60 before starting the next pack', async () =
   for (let i = 0; i < 122; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `p${i}` })));
   for (let i = 0; i < 4; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `a${i}`, animated: true })));
   const first = await h.command('send');
-  assert.match(first.text, /sendingPacks.*"count":126.*"packs":3/);
-  assert.equal(first.pluginActions.length, 1);
-  const [pack] = first.pluginActions;
+  assert.match(first.pluginActions[0].text, /sendingPacks.*"count":126.*"packs":3/);
+  assert.equal(first.stickerActions.length, 1);
+  const [pack] = first.stickerActions;
   assert.equal(pack.type, 'message.sendStickerPack');
   assert.equal(pack.chatId, 'alice@lid');
   assert.equal(pack.pack.stickers.length, 60);
@@ -367,12 +370,12 @@ test('a single small pack is not numbered and two remaining stickers stay in a p
   const h = setup();
   for (let i = 0; i < 5; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `q${i}` })));
   const res = await h.command('send', { args: ['3'] });
-  assert.equal(res.pluginActions[0].type, 'message.sendStickerPack');
-  assert.match(res.pluginActions[0].pack.name, /packName.*2026-11-01"\}$/);
+  assert.equal(res.stickerActions[0].type, 'message.sendStickerPack');
+  assert.match(res.stickerActions[0].pack.name, /packName.*2026-11-01"\}$/);
   const two = await h.command('send');
-  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendStickerPack']);
-  assert.equal(two.pluginActions[0].pack.stickers.length, 2);
-  assert.match(two.text, /sendingPacks.*"count":2.*"packs":1/);
+  assert.deepEqual(two.stickerActions.map(a => a.type), ['message.sendStickerPack']);
+  assert.equal(two.stickerActions[0].pack.stickers.length, 2);
+  assert.match(two.pluginActions[0].text, /sendingPacks.*"count":2.*"packs":1/);
 });
 
 test('the 14 still and 11 animated sticker digest arrives as one pack after the header', async () => {
@@ -393,7 +396,7 @@ test('native pack boundaries use the minimum number of packs without losing smal
     const h = setup();
     for (let i = 0; i < count; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `boundary${i}`, animated: i % 2 === 1 })));
     const first = await h.command('send');
-    const actions = [...first.pluginActions, ...(await drainDeliveries(h)).flat()];
+    const actions = [...first.stickerActions, ...(await drainDeliveries(h)).flat()];
     assert.equal(actions.length, Math.ceil(count / 60), `pack count for ${count} stickers`);
     for (const [index, action] of actions.entries()) {
       assert.equal(action.type, 'message.sendStickerPack');
@@ -413,8 +416,8 @@ test('stickers outside WhatsApp pack rules still go in the pack (the host confor
   await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: 'big' })));
   h.db.run('UPDATE stickers SET size_bytes = ? WHERE id = (SELECT max(id) FROM stickers)', 150 * 1024);
   const first = await h.command('send');
-  assert.match(first.text, /sendingPacks.*"count":6.*"packs":1/);
-  assert.equal(first.pluginActions[0].pack.stickers.length, 6);
+  assert.match(first.pluginActions[0].text, /sendingPacks.*"count":6.*"packs":1/);
+  assert.equal(first.stickerActions[0].pack.stickers.length, 6);
   assert.deepEqual(await drainDeliveries(h), []);
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 6);
 });
@@ -423,15 +426,15 @@ test('resend sends the most recently received stickers again, in collection orde
   const h = setup();
   assert.match((await h.command('resend')).text, /nothingToResend/);
   for (let i = 0; i < 5; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `r${i}` })));
-  const firstFilenames = (await h.command('send')).pluginActions[0].pack.stickers.map(s => s.file.filename);
+  const firstFilenames = (await h.command('send')).stickerActions[0].pack.stickers.map(s => s.file.filename);
   assert.match((await h.command('send')).text, /noNewStickers/);
   const all = await h.command('resend');
-  assert.equal(all.pluginActions[0].type, 'message.sendStickerPack');
-  assert.deepEqual(all.pluginActions[0].pack.stickers.map(s => s.file.filename), firstFilenames);
+  assert.equal(all.stickerActions[0].type, 'message.sendStickerPack');
+  assert.deepEqual(all.stickerActions[0].pack.stickers.map(s => s.file.filename), firstFilenames);
   assert.equal(h.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 5, 'recorded again after resending');
   const two = await h.command('resend', { args: ['2'] });
-  assert.deepEqual(two.pluginActions.map(a => a.type), ['message.sendStickerPack']);
-  assert.equal(two.pluginActions[0].pack.stickers.length, 2);
+  assert.deepEqual(two.stickerActions.map(a => a.type), ['message.sendStickerPack']);
+  assert.equal(two.stickerActions[0].pack.stickers.length, 2);
   assert.match((await h.command('send')).text, /noNewStickers/);
   assert.match((await h.command('resend', { identityId: 'bob' })).text, /nothingToResend/, 'per member');
 });
@@ -650,4 +653,34 @@ test('console operations list the gallery with favourite state and serve stored 
     status: 'waiting', failingSince: '2026-11-01T13:00:00.000Z', lastError: 'recovery requested; retry later',
     lastErrorAt: '2026-11-01T13:00:00.000Z', nextRetryAt: '2026-11-01T13:05:00.000Z', attempts: 1
   });
+});
+
+
+test('manual delivery announces privately before the first pack and schedules follow-ups last', async () => {
+  for (const command of ['send', 'random', 'resend']) {
+    const h = setup();
+    for (let i = 0; i < 114; i++) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt: `order-${i}` })));
+    if (command === 'resend') {
+      await h.command('send');
+      await drainDeliveries(h);
+      h.jobs.length = 0;
+    }
+    const result = await h.command(command, { execute: false });
+    assert.equal(result.text, undefined, 'no late duplicate command reply');
+    assert.deepEqual(result.response, { kind: 'none' });
+    assert.deepEqual(result.pluginActions.map(a => a.type), ['message.sendText', 'message.sendStickerPack', 'plugin.enqueueJob']);
+    const [intro, pack, continuation] = result.pluginActions;
+    assert.equal(intro.chatId, 'alice@lid');
+    assert.equal(intro.requiredRemoteChatId, intro.chatId, 'transport-acknowledged text, not asynchronous outbox');
+    assert.match(intro.text, /sendingPacks.*"count":114.*"packs":2/);
+    assert.match(intro.idempotencyKey, /^sticker-thief:[0-9a-f-]{36}:introduction$/);
+    assert.equal(pack.pack.stickers.length, 60);
+    assert.equal(h.jobs.some(j => j.jobName === 'sticker-thief.deliver'), false, 'nothing can race ahead before actions execute');
+    await h.executeActions([intro, pack]);
+    assert.equal(h.jobs.length, 0);
+    await h.executeActions([continuation]);
+    const remaining = await drainDeliveries(h);
+    assert.equal(remaining[0][0].pack.stickers.length, 54);
+    assert.equal(remaining.flat().some(a => a.type === 'message.sendText'), false, 'introduction is sent once');
+  }
 });

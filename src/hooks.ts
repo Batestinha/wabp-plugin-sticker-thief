@@ -137,6 +137,7 @@ export async function runDigest(context: StickerThiefHookContext, job: PluginJob
     ...(header ? [{
       type: 'message.sendText' as const,
       chatId: address.deliveryChatId,
+      requiredRemoteChatId: address.deliveryChatId,
       text: header,
       idempotencyKey: `sticker-thief:digest:${job.scopeId}:${payload.identityId}:${payload.dueAt}`
     }] : []),
