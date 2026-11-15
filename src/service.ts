@@ -21,6 +21,7 @@ import {
   STICKER_PACK_SPACING_MS,
   STICKER_THIEF_BACKFILL_JOB,
   STICKER_THIEF_DATABASE,
+  STICKER_THIEF_PLUGIN_ID,
   STICKER_THIEF_DELIVER_JOB,
   STICKER_THIEF_DIGEST_JOB,
   STICKER_THIEF_FAVORITE_JOB,
@@ -299,7 +300,11 @@ export async function deliverBatch(
       identityId: input.identityId, chatId: input.chatId, deliveryId: input.deliveryId, batches: rest,
       packName: input.packName, packCount: input.packCount, packsSent
     };
-    await enqueue(deps, {
+    // The host executes actions in order. Only schedule another batch after
+    // this batch (and its introduction) has actually reached the transport.
+    actions.push({
+      type: 'plugin.enqueueJob',
+      pluginId: STICKER_THIEF_PLUGIN_ID,
       jobName: STICKER_THIEF_DELIVER_JOB,
       executionClass: 'maintenance',
       scopeId: input.scopeId,
