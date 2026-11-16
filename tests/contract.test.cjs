@@ -15,8 +15,8 @@ test('package metadata matches the executable manifest', () => {
     assert.deepEqual(plugin.manifest[key], metadata[key], key);
   }
   assert.equal(metadata.version, pkg.version);
-  // Bot account favourites (accountStickers) need core API 0.3.20.
-  assert.equal(metadata.coreApiRange, '^0.3.21');
+  // Command audience declarations require core API 0.4.
+  assert.equal(metadata.coreApiRange, '^0.4.0');
 });
 
 test('every default message has a non-empty pt-PT translation and no extras', () => {

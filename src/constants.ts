@@ -1,8 +1,8 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.9.2';
+export const STICKER_THIEF_VERSION = '0.10.0';
 /** 0.3.21 lets console operations read the plugin's stored media (sticker previews). */
-export const STICKER_THIEF_CORE_API_RANGE = '^0.3.21';
+export const STICKER_THIEF_CORE_API_RANGE = '^0.4.0';
 export const STICKER_THIEF_DATABASE = 'stickers';
 export const STICKER_THIEF_DIGEST_JOB = 'sticker-thief.digest';
 export const STICKER_THIEF_DELIVER_JOB = 'sticker-thief.deliver';
