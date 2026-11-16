@@ -1,6 +1,6 @@
 import type { CommandContext, CommandResult } from '@wabs/plugin-sdk/commands';
 import { requireScopeId } from '@wabs/plugin-sdk/commands';
-import type { CommandMetadata, CommandTargetSpec } from '@wabs/plugin-sdk/command-metadata';
+import type { PluginCommandMetadata, CommandMetadata, CommandTargetSpec } from '@wabs/plugin-sdk/command-metadata';
 import type { ManagedGroupCommandContext } from '@wabs/plugin-sdk/managed-group-plugin';
 import type { PluginDatabase } from '@wabs/plugin-sdk/database';
 import type { StickerThiefConfig } from './config';
@@ -24,10 +24,12 @@ function stickerCommand(input: {
   mutation: CommandMetadata['mutation'];
   permission?: string | undefined;
   exampleKey: string;
-}): CommandMetadata {
+}): PluginCommandMetadata {
   return {
+    interactionPolicy: { kind: 'immediate', conversationAudience: 'requester', resultAudience: 'invoking_chat' },
     plane: 'group_operation',
     interaction: 'either_same_chat',
+    invocation: 'either',
     pluginId: STICKER_THIEF_PLUGIN_ID,
     requiresManagedGroup: true,
     requiresCurrentManagedGroupMembership: true,
