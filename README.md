@@ -1,8 +1,6 @@
 # Sticker Thief (`official.sticker-thief`)
 
-A WABP plugin that quietly saves every new sticker shared in managed groups and
-sends them privately to members who ask for them, either on a daily or weekly
-subscription or on demand.
+Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.
 
 Requires WABP core API `^0.3.15` (the `message.sendSticker` action).
 

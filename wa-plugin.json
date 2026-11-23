@@ -6,9 +6,9 @@
     "name": "Batestinha",
     "url": "https://github.com/Batestinha"
   },
-  "description": "Collect new WhatsApp stickers from managed groups and send them privately to subscribed members.",
+  "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
