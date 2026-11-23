@@ -1,8 +1,8 @@
 {
-  "official.sticker-thief.description": "Recolhe todos os stickers partilhados no grupo, incluindo os que já estão no arquivo da conversa, e envia-os em privado aos membros que subscrevem.",
+  "official.sticker-thief.description": "Recolhe autocolantes partilhados nos grupos onde está ativo e pode importar autocolantes dos arquivos de conversas. Os membros podem pedir autocolantes guardados ou subscrever envios privados diários ou semanais.",
   "official.sticker-thief.help.family": "Ladrão de Stickers",
   "official.sticker-thief.help.feature.title": "Ladrão de Stickers",
-  "official.sticker-thief.help.feature.summary": "Recolhe os stickers do grupo e recebe-os em privado.",
+  "official.sticker-thief.help.feature.summary": "Peça um autocolante guardado ou aleatório, ou subscreva os envios privados de autocolantes e gira a sua subscrição.",
   "official.sticker-thief.help.subscribe.title": "Subscrever stickers",
   "official.sticker-thief.help.subscribe.summary": "Recebe stickers novos em privado todos os dias ou todas as semanas.",
   "official.sticker-thief.help.subscribe.instruction": "Usa /stickers subscribe daily ou /stickers subscribe weekly. Usa /stickers unsubscribe para parar e /stickers status para veres o que está à tua espera.",

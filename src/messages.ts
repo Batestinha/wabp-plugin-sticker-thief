@@ -3,10 +3,10 @@ import type { MessageCatalog } from '@wabs/plugin-sdk/i18n';
 const ns = 'official.sticker-thief';
 
 export const stickerThiefMessages: MessageCatalog = {
-  [`${ns}.description`]: 'Collect every sticker shared in the group, including ones already in the chat archive, and send them privately to members who subscribe.',
+  [`${ns}.description`]: 'Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.',
   [`${ns}.help.family`]: 'Sticker Thief',
   [`${ns}.help.feature.title`]: 'Sticker Thief',
-  [`${ns}.help.feature.summary`]: 'Collect the group\'s stickers and get them sent to you privately.',
+  [`${ns}.help.feature.summary`]: 'Request a saved or random sticker, or subscribe to private sticker deliveries and manage your subscription.',
   [`${ns}.help.subscribe.title`]: 'Subscribe to stickers',
   [`${ns}.help.subscribe.summary`]: 'Receive new stickers privately every day or every week.',
   [`${ns}.help.subscribe.instruction`]: 'Use /stickers subscribe daily or /stickers subscribe weekly. Use /stickers unsubscribe to stop, and /stickers status to see what is waiting.',
