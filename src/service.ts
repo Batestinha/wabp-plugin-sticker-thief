@@ -39,12 +39,15 @@ import {
   favoriteState,
   recordFavoriteFailure,
   dropStickerEverywhere,
+  isForgottenSticker,
   isKnownSighting,
+  hasDelivery,
   markFavorited,
   pendingFavorites,
   recordDeliveries,
   recordKnownSticker,
   recordSticker,
+  stickerCollectedByHash,
   requestBackfill,
   resetBackfillChats,
   selectStickers,
@@ -61,6 +64,8 @@ export interface StickerThiefDeps {
   archivedStickers?: PluginArchivedStickers | undefined;
   accountStickers?: PluginAccountStickers | undefined;
   coveredGroupsForScope?: ((scopeId: string) => Promise<PluginCoveredGroup[]>) | undefined;
+  currentMemberIdentityIdsForScope?: ((scopeId: string) => Promise<readonly string[]>) | undefined;
+  resolveStableIdentityById?: ((identityId: string) => Promise<{ deliveryChatId?: string | null | undefined }>) | undefined;
   enqueuePluginJob?: ((input: PluginJobInput) => Promise<unknown>) | undefined;
   configFor?: ((scopeId: string, actorIdentityId?: string | undefined) => Promise<Record<string, unknown>>) | undefined;
   now?: (() => Date) | undefined;
@@ -101,10 +106,10 @@ async function recordStaged(
   deps: StickerThiefDeps,
   db: PluginDatabase,
   input: { scopeId: string; stanzaId: string; media: PluginStagedMedia; seenAt: Date }
-): Promise<CollectOutcome> {
+): Promise<CollectOutcome & { buffer?: Buffer }> {
   const stored = isWebP(input.media.mimeType) ? await deps.mediaStore?.read(input.media.id) : undefined;
   const info = stored ? parseWebPInfo(stored.buffer) : undefined;
-  if (!info) {
+  if (!stored || !info) {
     await deps.mediaStore?.delete(input.media.id);
     return { kind: 'skipped', reason: 'unsupported-sticker-format' };
   }
@@ -121,7 +126,9 @@ async function recordStaged(
     seenAt: input.seenAt
   });
   if (result.kind !== 'new') await deps.mediaStore?.delete(result.duplicateMediaId);
-  return result;
+  // The bytes were just read to validate the WebP. The caller can send them
+  // without reading the stored file a second time.
+  return { ...result, buffer: stored.buffer };
 }
 
 /** Saves a newly seen group sticker. Never emits chat actions: collecting is silent. */
@@ -450,6 +457,223 @@ export async function runBackfillPage(deps: StickerThiefDeps, scopeId: string): 
 
 export function isBackfillRescanJob(payload: unknown): boolean {
   return typeof payload === 'object' && payload !== null && (payload as { rescan?: unknown }).rescan === true;
+}
+
+export type ArchivedStickerIntent = 'offer' | 'send';
+export type ArchivedStickerResult = { result: 'offered' | 'sent' | 'already-sent' | 'refused'; reason?: string };
+
+export interface ArchivedStickerSendInput {
+  scopeId: string;
+  identityId: string;
+  deliveryChatId: string;
+  chatId: string;
+  groupId: string;
+  groupWid: string;
+  mediaId: string;
+  stanzaId: string;
+  sha256: string;
+  mimeType: string;
+  managementMode: string;
+  intent: ArchivedStickerIntent;
+}
+
+export interface ArchivedStickerSendHooks {
+  executeSend?(file: { buffer: Buffer }): Promise<void>;
+}
+
+function canManage(mode: string | undefined): boolean {
+  return mode === 'ASSIST' || mode === 'MANAGE';
+}
+
+/**
+ * Offers or sends one archived WebP sticker to a member the host has already
+ * named. Offer writes nothing. Send stages that one media id only when the
+ * file is not already collected, then delivers it to the member's own chat.
+ */
+async function authorizeArchivedMember(
+  deps: StickerThiefDeps,
+  input: {
+    scopeId: string; identityId: string; deliveryChatId: string; chatId: string;
+    groupId: string; groupWid: string; managementMode: string;
+  }
+): Promise<{ db: PluginDatabase; config: StickerThiefConfig; mediaStore: PluginMediaStore } | ArchivedStickerResult> {
+  const db = stickerDatabase(deps);
+  if (!db || !deps.mediaStore) return { result: 'refused', reason: 'storage-unavailable' };
+  const config = await configFor(deps, input.scopeId);
+  if (!config.enabled) return { result: 'refused', reason: 'disabled' };
+  if (!canManage(input.managementMode)) return { result: 'refused', reason: 'observe-only' };
+  if (!deps.coveredGroupsForScope || !deps.currentMemberIdentityIdsForScope || !deps.resolveStableIdentityById) {
+    return { result: 'refused', reason: 'membership-unavailable' };
+  }
+  const [coveredGroups, members] = await Promise.all([
+    deps.coveredGroupsForScope(input.scopeId),
+    deps.currentMemberIdentityIdsForScope(input.scopeId)
+  ]);
+  const covered = coveredGroups.find((group) => group.groupId === input.groupId && group.groupWid === input.groupWid);
+  if (!covered || covered.groupWid !== input.chatId || !canManage(covered.managementMode)) {
+    return { result: 'refused', reason: covered ? 'observe-only' : 'not-covered' };
+  }
+  if (!members.includes(input.identityId)) return { result: 'refused', reason: 'not-a-member' };
+  let resolved: { deliveryChatId?: string | null | undefined };
+  try {
+    resolved = await deps.resolveStableIdentityById(input.identityId);
+  } catch {
+    return { result: 'refused', reason: 'delivery-chat-mismatch' };
+  }
+  if (!resolved.deliveryChatId || resolved.deliveryChatId !== input.deliveryChatId) {
+    return { result: 'refused', reason: 'delivery-chat-mismatch' };
+  }
+  return { db, config, mediaStore: deps.mediaStore };
+}
+
+function refused(value: { db: PluginDatabase; config: StickerThiefConfig; mediaStore: PluginMediaStore } | ArchivedStickerResult): value is ArchivedStickerResult {
+  return 'result' in value;
+}
+
+export async function sendArchivedSticker(
+  deps: StickerThiefDeps,
+  input: ArchivedStickerSendInput,
+  hooks: ArchivedStickerSendHooks = {}
+): Promise<ArchivedStickerResult> {
+  if (!isWebP(input.mimeType) || !/^[a-f0-9]{64}$/.test(input.sha256)) {
+    return { result: 'refused', reason: 'unsupported-sticker-format' };
+  }
+  const gate = await authorizeArchivedMember(deps, input);
+  if (refused(gate)) return gate;
+  const { db, config, mediaStore } = gate;
+  if (isForgottenSticker(db, input.scopeId, input.sha256)) return { result: 'refused', reason: 'forgotten' };
+  const stanzaId = stanzaIdOf(input.stanzaId);
+  let prepared: Buffer | undefined;
+  let row = stickerCollectedByHash(db, input.scopeId, input.sha256);
+  if (!row) {
+    if (input.intent === 'offer') return { result: 'offered' };
+    if (!deps.archivedStickers) return { result: 'refused', reason: 'archive-unavailable' };
+    const staged = await deps.archivedStickers.stage({
+      scopeId: input.scopeId, chatId: input.chatId, mediaId: input.mediaId, maxBytes: config.maxStickerBytes
+    });
+    if (!staged.ok) return { result: 'refused', reason: staged.reason };
+    if (staged.media.sha256 !== input.sha256) {
+      await mediaStore.delete(staged.media.id);
+      return { result: 'refused', reason: 'hash-mismatch' };
+    }
+    const outcome = await recordStaged(deps, db, {
+      scopeId: input.scopeId, stanzaId, media: staged.media, seenAt: nowFrom(deps)
+    });
+    if (outcome.kind === 'forgotten') return { result: 'refused', reason: 'forgotten' };
+    if (outcome.kind === 'skipped') return { result: 'refused', reason: outcome.reason };
+    prepared = outcome.buffer;
+    row = stickerCollectedByHash(db, input.scopeId, input.sha256);
+    if (!row) return { result: 'refused', reason: 'not-recorded' };
+  } else if (input.intent === 'send') {
+    recordKnownSticker(db, { scopeId: input.scopeId, stanzaId, sha256: input.sha256, seenAt: nowFrom(deps) });
+  }
+  if (row.animated && !config.includeAnimated) return { result: 'refused', reason: 'animated-excluded' };
+  if (input.intent === 'offer') return { result: 'offered' };
+  if (hasDelivery(db, input.scopeId, input.identityId, row.id)) return { result: 'already-sent' };
+  const stored = prepared ? { buffer: prepared } : await mediaStore.read(row.mediaId);
+  if (!stored) return { result: 'refused', reason: 'media-missing' };
+  if (!hooks.executeSend) return { result: 'refused', reason: 'send-unavailable' };
+  await hooks.executeSend({ buffer: stored.buffer });
+  recordDeliveries(db, input.scopeId, input.identityId, [row.id], nowFrom(deps));
+  return { result: 'sent' };
+}
+
+export interface ArchivedStickerPackSendInput {
+  scopeId: string;
+  identityId: string;
+  deliveryChatId: string;
+  chatId: string;
+  groupId: string;
+  groupWid: string;
+  managementMode: string;
+  stanzaId: string;
+  name: string;
+  publisher?: string | undefined;
+  stickers: ReadonlyArray<{ mediaId: string; sha256: string; mimeType: string; emoji?: string | undefined }>;
+  intent: ArchivedStickerIntent;
+}
+
+export interface ArchivedStickerPackSendHooks {
+  executeSend?(pack: {
+    name: string;
+    publisher?: string;
+    stickers: Array<{ buffer: Buffer; sha256: string; emoji?: string | undefined }>;
+  }): Promise<void>;
+}
+
+/**
+ * Offers or sends one archived pack to the member the host named. A pack with
+ * a forgotten sticker, a missing file, or an excluded animation is refused
+ * whole. Offer writes nothing.
+ */
+export async function sendArchivedStickerPack(
+  deps: StickerThiefDeps,
+  input: ArchivedStickerPackSendInput,
+  hooks: ArchivedStickerPackSendHooks = {}
+): Promise<ArchivedStickerResult> {
+  const name = input.name.trim();
+  if (!name || input.stickers.length < 1 || input.stickers.length > STICKER_PACK_MAX) {
+    return { result: 'refused', reason: 'unsupported-sticker-format' };
+  }
+  if (input.stickers.some((sticker) => !isWebP(sticker.mimeType) || !/^[a-f0-9]{64}$/.test(sticker.sha256))) {
+    return { result: 'refused', reason: 'unsupported-sticker-format' };
+  }
+  const gate = await authorizeArchivedMember(deps, input);
+  if (refused(gate)) return gate;
+  const { db, config, mediaStore } = gate;
+  const stanzaId = stanzaIdOf(input.stanzaId);
+  const prepared: Array<{ id: number; mediaId: string; sha256: string; buffer?: Buffer; emoji?: string }> = [];
+  for (const sticker of input.stickers) {
+    if (isForgottenSticker(db, input.scopeId, sticker.sha256)) return { result: 'refused', reason: 'forgotten' };
+    let row = stickerCollectedByHash(db, input.scopeId, sticker.sha256);
+    let buffer: Buffer | undefined;
+    if (!row) {
+      if (input.intent === 'offer') {
+        prepared.push({ id: 0, mediaId: sticker.mediaId, sha256: sticker.sha256, ...(sticker.emoji ? { emoji: sticker.emoji } : {}) });
+        continue;
+      }
+      if (!deps.archivedStickers) return { result: 'refused', reason: 'archive-unavailable' };
+      const staged = await deps.archivedStickers.stage({
+        scopeId: input.scopeId, chatId: input.chatId, mediaId: sticker.mediaId, maxBytes: config.maxStickerBytes
+      });
+      if (!staged.ok) return { result: 'refused', reason: staged.reason };
+      if (staged.media.sha256 !== sticker.sha256) {
+        await mediaStore.delete(staged.media.id);
+        return { result: 'refused', reason: 'hash-mismatch' };
+      }
+      const outcome = await recordStaged(deps, db, {
+        scopeId: input.scopeId, stanzaId, media: staged.media, seenAt: nowFrom(deps)
+      });
+      if (outcome.kind === 'forgotten') return { result: 'refused', reason: 'forgotten' };
+      if (outcome.kind === 'skipped') return { result: 'refused', reason: outcome.reason };
+      buffer = outcome.buffer;
+      row = stickerCollectedByHash(db, input.scopeId, sticker.sha256);
+      if (!row) return { result: 'refused', reason: 'not-recorded' };
+    } else if (input.intent === 'send') {
+      recordKnownSticker(db, { scopeId: input.scopeId, stanzaId, sha256: sticker.sha256, seenAt: nowFrom(deps) });
+    }
+    if (row.animated && !config.includeAnimated) return { result: 'refused', reason: 'animated-excluded' };
+    prepared.push({
+      id: row.id, mediaId: row.mediaId, sha256: sticker.sha256,
+      ...(buffer ? { buffer } : {}), ...(sticker.emoji ? { emoji: sticker.emoji } : {})
+    });
+  }
+  if (input.intent === 'offer') return { result: 'offered' };
+  if (prepared.every((sticker) => sticker.id && hasDelivery(db, input.scopeId, input.identityId, sticker.id))) {
+    return { result: 'already-sent' };
+  }
+  const stickers: Array<{ buffer: Buffer; sha256: string; emoji?: string | undefined }> = [];
+  for (const sticker of prepared) {
+    const stored = sticker.buffer ? { buffer: sticker.buffer } : await mediaStore.read(sticker.mediaId);
+    if (!stored) return { result: 'refused', reason: 'media-missing' };
+    stickers.push({ buffer: stored.buffer, sha256: sticker.sha256, ...(sticker.emoji ? { emoji: sticker.emoji } : {}) });
+  }
+  if (!hooks.executeSend) return { result: 'refused', reason: 'send-unavailable' };
+  await hooks.executeSend({
+    name, ...(input.publisher?.trim() ? { publisher: input.publisher.trim() } : {}), stickers
+  });
+  recordDeliveries(db, input.scopeId, input.identityId, prepared.map((sticker) => sticker.id), nowFrom(deps));
+  return { result: 'sent' };
 }
 
 /** Operator request: list the archive again now and report where things stand. */

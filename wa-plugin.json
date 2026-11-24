@@ -8,7 +8,7 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.4",
+  "version": "0.9.6",
   "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -199,6 +199,20 @@
       "scope": "scope",
       "description": "Queue a fresh pass over the chat archive so stickers added since the last import are collected.",
       "timeoutMs": 30000
+    },
+    {
+      "actionId": "official.sticker-thief.sendArchivedSticker",
+      "access": "mutation",
+      "scope": "scope",
+      "description": "Offer or send one archived WebP sticker to a current member. The host chooses the member and the private destination.",
+      "timeoutMs": 30000
+    },
+    {
+      "actionId": "official.sticker-thief.sendArchivedStickerPack",
+      "access": "mutation",
+      "scope": "scope",
+      "description": "Offer or send one archived sticker pack to a current member. The host chooses the member and the private destination.",
+      "timeoutMs": 180000
     }
   ],
   "consoleOperations": [

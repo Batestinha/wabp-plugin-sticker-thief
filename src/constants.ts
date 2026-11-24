@@ -1,6 +1,6 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.9.4';
+export const STICKER_THIEF_VERSION = '0.9.6';
 /** 0.3.21 lets console operations read the plugin's stored media (sticker previews). */
 export const STICKER_THIEF_CORE_API_RANGE = '^0.3.21';
 export const STICKER_THIEF_DATABASE = 'stickers';
@@ -26,6 +26,8 @@ export const BACKFILL_PAGE_SPACING_MS = 5_000;
 /** Archive media ids are random, so new stickers can only be found by listing again. */
 export const BACKFILL_RESCAN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const STICKER_THIEF_REIMPORT_ACTION_ID = 'official.sticker-thief.reimportArchive';
+export const STICKER_THIEF_SEND_ARCHIVED_ACTION_ID = 'official.sticker-thief.sendArchivedSticker';
+export const STICKER_THIEF_SEND_ARCHIVED_PACK_ACTION_ID = 'official.sticker-thief.sendArchivedStickerPack';
 export const STICKER_THIEF_GALLERY_OPERATION_ID = 'official.sticker-thief.stickerGallery';
 export const STICKER_THIEF_STICKER_IMAGE_OPERATION_ID = 'official.sticker-thief.stickerImage';
 export const STICKER_THIEF_GALLERY_BUILDER_ID = 'official.sticker-thief.gallery.v1';

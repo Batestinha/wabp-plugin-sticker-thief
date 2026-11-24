@@ -78,6 +78,28 @@ export function isKnownSighting(db: PluginDatabase, scopeId: string, stanzaId: s
   return Boolean(db.get('SELECT 1 AS hit FROM sticker_sightings WHERE scope_id = ? AND stanza_id = ?', scopeId, stanzaId));
 }
 
+export function isForgottenSticker(db: PluginDatabase, scopeId: string, sha256: string): boolean {
+  return Boolean(db.get('SELECT 1 AS hit FROM forgotten_stickers WHERE scope_id = ? AND sha256 = ?', scopeId, sha256));
+}
+
+/** A sticker already collected in this scope, including its stored file id. */
+export function stickerCollectedByHash(db: PluginDatabase, scopeId: string, sha256: string): { id: number; mediaId: string; animated: boolean } | undefined {
+  const row = db.get<{ id: number; media_id: string; animated: number }>(
+    `SELECT s.id, s.media_id, s.animated FROM stickers s
+       JOIN sticker_scopes ss ON ss.sticker_id = s.id AND ss.scope_id = ?
+      WHERE s.sha256 = ?`,
+    scopeId, sha256
+  );
+  return row ? { id: Number(row.id), mediaId: row.media_id, animated: Number(row.animated) === 1 } : undefined;
+}
+
+export function hasDelivery(db: PluginDatabase, scopeId: string, identityId: string, stickerId: number): boolean {
+  return Boolean(db.get(
+    'SELECT 1 AS hit FROM deliveries WHERE scope_id = ? AND identity_id = ? AND sticker_id = ?',
+    scopeId, identityId, stickerId
+  ));
+}
+
 export interface SelectStickersInput {
   scopeId: string;
   identityId: string;

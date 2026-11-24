@@ -13,6 +13,8 @@ import {
   STICKER_THIEF_NAMESPACE as ns,
   STICKER_THIEF_PLUGIN_ID,
   STICKER_THIEF_REIMPORT_ACTION_ID,
+  STICKER_THIEF_SEND_ARCHIVED_ACTION_ID,
+  STICKER_THIEF_SEND_ARCHIVED_PACK_ACTION_ID,
   STICKER_THIEF_VERSION
 } from './constants';
 import { stickerThiefMessages } from './messages';
@@ -89,6 +91,18 @@ export const stickerThiefManifest: PluginManifest = {
     scope: 'scope',
     description: 'Queue a fresh pass over the chat archive so stickers added since the last import are collected.',
     timeoutMs: 30_000
+  }, {
+    actionId: STICKER_THIEF_SEND_ARCHIVED_ACTION_ID,
+    access: 'mutation',
+    scope: 'scope',
+    description: 'Offer or send one archived WebP sticker to a current member. The host chooses the member and the private destination.',
+    timeoutMs: 30_000
+  }, {
+    actionId: STICKER_THIEF_SEND_ARCHIVED_PACK_ACTION_ID,
+    access: 'mutation',
+    scope: 'scope',
+    description: 'Offer or send one archived sticker pack to a current member. The host chooses the member and the private destination.',
+    timeoutMs: 180_000
   }],
   consoleOperations: [
     {
