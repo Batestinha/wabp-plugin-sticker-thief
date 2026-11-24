@@ -100,6 +100,14 @@ export function hasDelivery(db: PluginDatabase, scopeId: string, identityId: str
   ));
 }
 
+/** True only after this member was sent this sticker by the archive sticker action. */
+export function hasArchiveStickerSend(db: PluginDatabase, scopeId: string, identityId: string, sha256: string): boolean {
+  return Boolean(db.get(
+    'SELECT 1 AS hit FROM archive_sticker_sends WHERE scope_id = ? AND identity_id = ? AND sha256 = ?',
+    scopeId, identityId, sha256
+  ));
+}
+
 /** True only when this exact pack digest was sent, not when each sticker was. */
 export function hasPackDelivery(db: PluginDatabase, scopeId: string, identityId: string, digest: string): boolean {
   return Boolean(db.get(
@@ -276,6 +284,13 @@ export function recentlyDeliveredIds(db: PluginDatabase, input: { scopeId: strin
 export function clearDeliveries(db: PluginDatabase, scopeId: string, identityId: string, stickerIds: number[]): number {
   return db.transaction(() => stickerIds.reduce((total, id) =>
     total + Number(db.run('DELETE FROM deliveries WHERE scope_id = ? AND identity_id = ? AND sticker_id = ?', scopeId, identityId, id).changes), 0));
+}
+
+export function recordArchiveStickerSend(db: PluginDatabase, scopeId: string, identityId: string, sha256: string, at: Date): void {
+  db.run(
+    'INSERT OR IGNORE INTO archive_sticker_sends (scope_id, identity_id, sha256, sent_at) VALUES (?, ?, ?, ?)',
+    scopeId, identityId, sha256, at.toISOString()
+  );
 }
 
 export function recordDeliveries(db: PluginDatabase, scopeId: string, identityId: string, stickerIds: number[], at: Date): void {

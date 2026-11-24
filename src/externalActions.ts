@@ -94,7 +94,7 @@ export function registerStickerThiefExternalActions(context: ActionContext): Plu
               type: 'message.sendSticker',
               chatId: input.deliveryChatId,
               file: { filename: `${input.sha256.slice(0, 16)}.webp`, mimeType: STICKER_MIME_TYPE, buffer: file.buffer },
-              idempotencyKey: `sticker-thief:archive:${input.scopeId}:${input.identityId}:${input.sha256}`
+              idempotencyKey: `sticker-thief:archive:v2:${input.scopeId}:${input.identityId}:${input.sha256}`
             }]
           });
         }

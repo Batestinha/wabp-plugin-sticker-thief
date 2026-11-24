@@ -129,7 +129,7 @@ test('the registered action sends only through the host operator, to the deliver
   assert.equal(actions[0].actions[0].type, 'message.sendSticker');
   assert.notEqual(actions[0].actions[0].abortBatchOnFailure, true);
   assert.equal(actions[0].actions[0].chatId, 'alice@lid');
-  assert.equal(actions[0].actions[0].idempotencyKey, `sticker-thief:archive:${SCOPE}:alice:${SHA(buffer)}`);
+  assert.equal(actions[0].actions[0].idempotencyKey, `sticker-thief:archive:v2:${SCOPE}:alice:${SHA(buffer)}`);
   assert.equal(actions[0].groupWid, CHAT);
 });
 
@@ -166,6 +166,25 @@ test('a pack is offered without staging and sent once, to the member chat', asyn
   assert.equal(again.result, 'already-sent');
   assert.equal(sends.length, 1);
   assert.deepEqual(h.archived.calls.stage, ['media-a', 'media-b']);
+});
+
+test('a sticker sent inside a pack can still be sent on its own', async () => {
+  const first = webp({ salt: 'pack-then-one' });
+  const { h, sends, send } = setup(first);
+  const packSends = [];
+  const input = {
+    scopeId: SCOPE, identityId: 'alice', deliveryChatId: 'alice@lid', chatId: CHAT, groupId: CHAT, groupWid: CHAT,
+    managementMode: 'ASSIST', stanzaId: 'PACK', name: 'Linha', intent: 'send',
+    stickers: [{ mediaId: 'media-1', sha256: SHA(first), mimeType: 'image/webp' }]
+  };
+  assert.equal((await sendArchivedStickerPack(h.context, input, {
+    executeSend: async (pack) => { packSends.push(pack); }
+  })).result, 'sent');
+  assert.equal(packSends.length, 1);
+  assert.equal((await send()).result, 'sent');
+  assert.equal(sends.length, 1);
+  assert.equal((await send()).result, 'already-sent');
+  assert.equal(sends.length, 1);
 });
 
 test('a pack still sends when each of its stickers was already delivered alone', async () => {

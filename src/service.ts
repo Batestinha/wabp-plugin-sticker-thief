@@ -41,10 +41,11 @@ import {
   dropStickerEverywhere,
   isForgottenSticker,
   isKnownSighting,
-  hasDelivery,
+  hasArchiveStickerSend,
   hasPackDelivery,
   markFavorited,
   pendingFavorites,
+  recordArchiveStickerSend,
   recordDeliveries,
   recordPackDelivery,
   recordKnownSticker,
@@ -600,12 +601,16 @@ export async function sendArchivedSticker(
   }
   if (row.animated && !config.includeAnimated) return { result: 'refused', reason: 'animated-excluded' };
   if (input.intent === 'offer') return { result: 'offered' };
-  if (hasDelivery(db, input.scopeId, input.identityId, row.id)) return { result: 'already-sent' };
+  // Pack and subscription sends also fill `deliveries`. Those rows must not
+  // hide a later request for this one sticker.
+  if (hasArchiveStickerSend(db, input.scopeId, input.identityId, input.sha256)) return { result: 'already-sent' };
   const stored = prepared ? { buffer: prepared } : await mediaStore.read(row.mediaId);
   if (!stored) return { result: 'refused', reason: 'media-missing' };
   if (!hooks.executeSend) return { result: 'refused', reason: 'send-unavailable' };
   await hooks.executeSend({ buffer: stored.buffer });
-  recordDeliveries(db, input.scopeId, input.identityId, [row.id], nowFrom(deps));
+  const sentAt = nowFrom(deps);
+  recordArchiveStickerSend(db, input.scopeId, input.identityId, input.sha256, sentAt);
+  recordDeliveries(db, input.scopeId, input.identityId, [row.id], sentAt);
   return { result: 'sent' };
 }
 
