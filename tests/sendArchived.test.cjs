@@ -203,3 +203,54 @@ test('the pack action sends a native pack only to the delivery chat', async () =
   assert.equal(actions[0].actions[0].pack.name, 'Linha');
   assert.equal(actions[0].actions[0].pack.stickers.length, 1);
 });
+
+function recordedChecks(context, { member = true, mode = 'ASSIST', groupId = CHAT } = {}) {
+  const slow = { groups: 0, members: 0 };
+  context.coveredGroupsForScope = async () => { slow.groups += 1; return []; };
+  context.currentMemberIdentityIdsForScope = async () => { slow.members += 1; return []; };
+  context.archivedCoveredGroup = async (scopeId, groupWid) => (
+    groupWid === CHAT ? { scopeId, groupId, groupWid, managementMode: mode } : undefined
+  );
+  context.recordedScopeMember = async () => member;
+  return slow;
+}
+
+test('an offer uses the recorded group and member and does not list groups or snapshot members', async () => {
+  const buffer = webp({ salt: 'recorded-offer' });
+  const { h, sends, send } = setup(buffer);
+  const slow = recordedChecks(h.context);
+  assert.equal((await send({ intent: 'offer' })).result, 'offered');
+  assert.equal(slow.groups, 0);
+  assert.equal(slow.members, 0);
+  assert.equal(h.archived.calls.stage.length, 0);
+  assert.equal(sends.length, 0);
+  h.db.run(
+    'INSERT INTO forgotten_stickers (scope_id, sha256, forgotten_at) VALUES (?, ?, ?)',
+    SCOPE, SHA(buffer), '2026-11-01T00:00:00.000Z'
+  );
+  assert.equal((await send({ intent: 'offer' })).reason, 'forgotten');
+  assert.equal(slow.groups, 0);
+  assert.equal(slow.members, 0);
+});
+
+test('a recorded non-member, a foreign group id, and an observe-only group are refused without a snapshot', async () => {
+  const buffer = webp({ salt: 'recorded-refuse' });
+  const stranger = setup(buffer);
+  const strangerSlow = recordedChecks(stranger.h.context, { member: false });
+  assert.equal((await stranger.send({ intent: 'offer' })).reason, 'not-a-member');
+  assert.equal(strangerSlow.groups, 0);
+  assert.equal(strangerSlow.members, 0);
+  assert.equal(stranger.h.archived.calls.stage.length, 0);
+
+  const foreign = setup(buffer);
+  const foreignSlow = recordedChecks(foreign.h.context, { groupId: 'other-group' });
+  assert.equal((await foreign.send({ intent: 'offer' })).reason, 'not-covered');
+  assert.equal(foreignSlow.groups, 0);
+  assert.equal(foreignSlow.members, 0);
+
+  const observe = setup(buffer);
+  const observeSlow = recordedChecks(observe.h.context, { mode: 'OBSERVE' });
+  assert.equal((await observe.send({ intent: 'offer' })).reason, 'observe-only');
+  assert.equal(observeSlow.members, 0);
+  assert.equal(observe.h.archived.calls.stage.length, 0);
+});

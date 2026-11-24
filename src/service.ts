@@ -65,6 +65,10 @@ export interface StickerThiefDeps {
   accountStickers?: PluginAccountStickers | undefined;
   coveredGroupsForScope?: ((scopeId: string) => Promise<PluginCoveredGroup[]>) | undefined;
   currentMemberIdentityIdsForScope?: ((scopeId: string) => Promise<readonly string[]>) | undefined;
+  /** One enrolled group. The menu uses this so it does not list every group in the scope. */
+  archivedCoveredGroup?: ((scopeId: string, groupWid: string) => Promise<PluginCoveredGroup | undefined>) | undefined;
+  /** Recorded membership for one identity. The menu uses this so it does not snapshot WhatsApp. */
+  recordedScopeMember?: ((scopeId: string, identityId: string) => Promise<boolean>) | undefined;
   resolveStableIdentityById?: ((identityId: string) => Promise<{ deliveryChatId?: string | null | undefined }>) | undefined;
   enqueuePluginJob?: ((input: PluginJobInput) => Promise<unknown>) | undefined;
   configFor?: ((scopeId: string, actorIdentityId?: string | undefined) => Promise<Record<string, unknown>>) | undefined;
@@ -486,6 +490,31 @@ function canManage(mode: string | undefined): boolean {
 }
 
 /**
+ * The fresh member reader snapshots every WhatsApp group in the scope. An
+ * archived sticker offer already knows the one group and the one identity, so
+ * it uses the recorded checks when the host provides them.
+ */
+async function coveredGroupForArchive(
+  deps: StickerThiefDeps,
+  input: { scopeId: string; groupId: string; groupWid: string }
+): Promise<PluginCoveredGroup | undefined> {
+  if (deps.archivedCoveredGroup) {
+    const group = await deps.archivedCoveredGroup(input.scopeId, input.groupWid);
+    if (!group || group.groupId !== input.groupId || group.groupWid !== input.groupWid) return undefined;
+    return group;
+  }
+  if (!deps.coveredGroupsForScope) return undefined;
+  const groups = await deps.coveredGroupsForScope(input.scopeId);
+  return groups.find((group) => group.groupId === input.groupId && group.groupWid === input.groupWid);
+}
+
+async function memberOfScope(deps: StickerThiefDeps, scopeId: string, identityId: string): Promise<boolean | undefined> {
+  if (deps.recordedScopeMember) return deps.recordedScopeMember(scopeId, identityId);
+  if (!deps.currentMemberIdentityIdsForScope) return undefined;
+  return (await deps.currentMemberIdentityIdsForScope(scopeId)).includes(identityId);
+}
+
+/**
  * Offers or sends one archived WebP sticker to a member the host has already
  * named. Offer writes nothing. Send stages that one media id only when the
  * file is not already collected, then delivers it to the member's own chat.
@@ -502,18 +531,18 @@ async function authorizeArchivedMember(
   const config = await configFor(deps, input.scopeId);
   if (!config.enabled) return { result: 'refused', reason: 'disabled' };
   if (!canManage(input.managementMode)) return { result: 'refused', reason: 'observe-only' };
-  if (!deps.coveredGroupsForScope || !deps.currentMemberIdentityIdsForScope || !deps.resolveStableIdentityById) {
+  if (!deps.resolveStableIdentityById
+    || (!deps.archivedCoveredGroup && !deps.coveredGroupsForScope)
+    || (!deps.recordedScopeMember && !deps.currentMemberIdentityIdsForScope)) {
     return { result: 'refused', reason: 'membership-unavailable' };
   }
-  const [coveredGroups, members] = await Promise.all([
-    deps.coveredGroupsForScope(input.scopeId),
-    deps.currentMemberIdentityIdsForScope(input.scopeId)
-  ]);
-  const covered = coveredGroups.find((group) => group.groupId === input.groupId && group.groupWid === input.groupWid);
+  const covered = await coveredGroupForArchive(deps, input);
   if (!covered || covered.groupWid !== input.chatId || !canManage(covered.managementMode)) {
     return { result: 'refused', reason: covered ? 'observe-only' : 'not-covered' };
   }
-  if (!members.includes(input.identityId)) return { result: 'refused', reason: 'not-a-member' };
+  const member = await memberOfScope(deps, input.scopeId, input.identityId);
+  if (member === undefined) return { result: 'refused', reason: 'membership-unavailable' };
+  if (!member) return { result: 'refused', reason: 'not-a-member' };
   let resolved: { deliveryChatId?: string | null | undefined };
   try {
     resolved = await deps.resolveStableIdentityById(input.identityId);
