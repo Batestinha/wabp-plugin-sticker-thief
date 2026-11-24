@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { PluginAction } from '@wabs/plugin-sdk/actions';
 import type { PluginArchivedStickers } from '@wabs/plugin-sdk/chat-archive';
 import type { PluginAccountStickers } from '@wabs/plugin-sdk/integration-plugin';
@@ -42,9 +42,11 @@ import {
   isForgottenSticker,
   isKnownSighting,
   hasDelivery,
+  hasPackDelivery,
   markFavorited,
   pendingFavorites,
   recordDeliveries,
+  recordPackDelivery,
   recordKnownSticker,
   recordSticker,
   stickerCollectedByHash,
@@ -688,7 +690,10 @@ export async function sendArchivedStickerPack(
     });
   }
   if (input.intent === 'offer') return { result: 'offered' };
-  if (prepared.every((sticker) => sticker.id && hasDelivery(db, input.scopeId, input.identityId, sticker.id))) {
+  // Same digest the operator action uses. A sticker delivered on its own, or by
+  // the digest, is not this pack.
+  const digest = createHash('sha256').update(prepared.map((sticker) => sticker.sha256).join('\n')).digest('hex');
+  if (hasPackDelivery(db, input.scopeId, input.identityId, digest)) {
     return { result: 'already-sent' };
   }
   const stickers: Array<{ buffer: Buffer; sha256: string; emoji?: string | undefined }> = [];
@@ -701,7 +706,9 @@ export async function sendArchivedStickerPack(
   await hooks.executeSend({
     name, ...(input.publisher?.trim() ? { publisher: input.publisher.trim() } : {}), stickers
   });
-  recordDeliveries(db, input.scopeId, input.identityId, prepared.map((sticker) => sticker.id), nowFrom(deps));
+  const sentAt = nowFrom(deps);
+  recordDeliveries(db, input.scopeId, input.identityId, prepared.map((sticker) => sticker.id), sentAt);
+  recordPackDelivery(db, input.scopeId, input.identityId, digest, sentAt);
   return { result: 'sent' };
 }
 

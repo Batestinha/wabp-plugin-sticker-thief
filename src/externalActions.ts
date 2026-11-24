@@ -119,6 +119,7 @@ export function registerStickerThiefExternalActions(context: ActionContext): Plu
             groupWid: input.groupWid,
             actions: [{
               type: 'message.sendStickerPack',
+              abortBatchOnFailure: true,
               chatId: input.deliveryChatId,
               pack: {
                 id: `archive-${digest.slice(0, 16)}`,

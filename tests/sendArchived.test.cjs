@@ -127,6 +127,7 @@ test('the registered action sends only through the host operator, to the deliver
   assert.equal((await action.handler(input)).result, 'sent');
   assert.equal(actions.length, 1);
   assert.equal(actions[0].actions[0].type, 'message.sendSticker');
+  assert.notEqual(actions[0].actions[0].abortBatchOnFailure, true);
   assert.equal(actions[0].actions[0].chatId, 'alice@lid');
   assert.equal(actions[0].actions[0].idempotencyKey, `sticker-thief:archive:${SCOPE}:alice:${SHA(buffer)}`);
   assert.equal(actions[0].groupWid, CHAT);
@@ -167,6 +168,29 @@ test('a pack is offered without staging and sent once, to the member chat', asyn
   assert.deepEqual(h.archived.calls.stage, ['media-a', 'media-b']);
 });
 
+test('a pack still sends when each of its stickers was already delivered alone', async () => {
+  const first = webp({ salt: 'pack-after-single' });
+  const { h, sends, send } = setup(first);
+  assert.equal((await send()).result, 'sent');
+  assert.equal(sends.length, 1);
+  const packSends = [];
+  const input = {
+    scopeId: SCOPE, identityId: 'alice', deliveryChatId: 'alice@lid', chatId: CHAT, groupId: CHAT, groupWid: CHAT,
+    managementMode: 'ASSIST', stanzaId: 'PACK', name: 'Linha', intent: 'send',
+    stickers: [{ mediaId: 'media-1', sha256: SHA(first), mimeType: 'image/webp' }]
+  };
+  const result = await sendArchivedStickerPack(h.context, input, {
+    executeSend: async (pack) => { packSends.push(pack); }
+  });
+  assert.equal(result.result, 'sent');
+  assert.equal(packSends.length, 1);
+  const again = await sendArchivedStickerPack(h.context, input, {
+    executeSend: async (pack) => { packSends.push(pack); }
+  });
+  assert.equal(again.result, 'already-sent');
+  assert.equal(packSends.length, 1);
+});
+
 test('a pack with one forgotten sticker is not sent', async () => {
   const first = webp({ salt: 'pack-forgotten' });
   const { h, sends } = setup(first);
@@ -199,6 +223,7 @@ test('the pack action sends a native pack only to the delivery chat', async () =
   });
   assert.equal(result.result, 'sent');
   assert.equal(actions[0].actions[0].type, 'message.sendStickerPack');
+  assert.equal(actions[0].actions[0].abortBatchOnFailure, true);
   assert.equal(actions[0].actions[0].chatId, 'alice@lid');
   assert.equal(actions[0].actions[0].pack.name, 'Linha');
   assert.equal(actions[0].actions[0].pack.stickers.length, 1);

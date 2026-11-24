@@ -100,6 +100,14 @@ export function hasDelivery(db: PluginDatabase, scopeId: string, identityId: str
   ));
 }
 
+/** True only when this exact pack digest was sent, not when each sticker was. */
+export function hasPackDelivery(db: PluginDatabase, scopeId: string, identityId: string, digest: string): boolean {
+  return Boolean(db.get(
+    'SELECT 1 AS hit FROM pack_deliveries WHERE scope_id = ? AND identity_id = ? AND digest = ?',
+    scopeId, identityId, digest
+  ));
+}
+
 export interface SelectStickersInput {
   scopeId: string;
   identityId: string;
@@ -279,6 +287,13 @@ export function recordDeliveries(db: PluginDatabase, scopeId: string, identityId
       );
     }
   });
+}
+
+export function recordPackDelivery(db: PluginDatabase, scopeId: string, identityId: string, digest: string, at: Date): void {
+  db.run(
+    'INSERT OR IGNORE INTO pack_deliveries (scope_id, identity_id, digest, delivered_at) VALUES (?, ?, ?, ?)',
+    scopeId, identityId, digest, at.toISOString()
+  );
 }
 
 export interface ScopeStats {
