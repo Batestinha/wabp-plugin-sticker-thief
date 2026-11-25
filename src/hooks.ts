@@ -13,6 +13,7 @@ import {
 } from './constants';
 import {
   announceNewSticker,
+  catalogGroupLines,
   collectSticker,
   configFor,
   deliverBatch,
@@ -34,7 +35,10 @@ import { advanceSubscription, deleteSubscription, getSubscription, listSubscript
 
 export interface StickerThiefHookContext extends StickerThiefDeps {
   logger?: { warn(fields: Record<string, unknown>, message: string): void } | undefined;
-  i18n?: { translatorForIdentity?(identityId: string, scopeId?: string): Promise<TranslateFn> } | undefined;
+  i18n?: {
+    translatorForIdentity?(identityId: string, scopeId?: string): Promise<TranslateFn>;
+    translatorForScope?(scopeId: string): Promise<TranslateFn>;
+  } | undefined;
   resolveStableIdentityById?: ((identityId: string) => Promise<StableIdentityAddressResolution>) | undefined;
   currentMemberIdentityIdsForScope?: ((scopeId: string) => Promise<string[]>) | undefined;
   listEnabledScopes?: (() => Promise<PluginEnabledScope[]>) | undefined;
@@ -65,11 +69,14 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
       const outcome = await collectSticker(context, event.scopeId, event.message);
       if (outcome.kind === 'new') {
         await scheduleFavorites(context, event.scopeId);
+        const translate = await context.i18n?.translatorForScope?.(event.scopeId);
+        const catalog = translate ? catalogGroupLines(translate) : [];
         const lines = await announceNewSticker(context, {
           scopeId: event.scopeId,
           chatId: event.message.chatId,
           stickerId: outcome.stickerId,
-          managementMode: event.managementMode
+          managementMode: event.managementMode,
+          ...(catalog.length ? { lines: catalog } : {})
         });
         if (lines.length) return lines;
       }

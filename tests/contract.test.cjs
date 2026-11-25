@@ -23,6 +23,11 @@ test('every default message has a non-empty pt-PT translation and no extras', ()
   const pt = JSON.parse(fs.readFileSync(path.join(__dirname, '../locales/pt-PT', metadata.messageNamespace + '.json')));
   assert.deepEqual(Object.keys(pt).sort(), Object.keys(plugin.manifest.defaultMessages).sort());
   for (const [key, value] of Object.entries(pt)) {
+    const source = plugin.manifest.defaultMessages[key];
+    if (!source.trim()) {
+      assert.equal(value, '', key);
+      continue;
+    }
     assert.ok(value.trim(), key);
     assert.doesNotMatch(value, /\bvocê\b/i, `${key} must address the reader as tu`);
   }

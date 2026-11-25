@@ -8,7 +8,7 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.12",
+  "version": "0.9.13",
   "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -164,7 +164,7 @@
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
       "Every collected sticker is added to the bot account's favourite stickers (WhatsApp syncs favourites, not installed packs, across an account's devices); when WhatsApp waits for the phone to repair that list, favourites retry with growing delays and the operator console shows what is waiting.",
       "Members only receive stickers collected in groups of the same scope.",
-      "A group line is posted only after a live new sticker, in Assist or Manage, when lines and a chance are configured. Archive imports and repeated stickers stay quiet, and each group has its own cooldown."
+      "A group line is posted only after a live new sticker, in Assist or Manage, when an Announce Bot message and a chance are configured. Archive imports and repeated stickers stay quiet, and each group has its own cooldown."
     ],
     "workflows": [
       {
@@ -430,34 +430,12 @@
       },
       {
         "pluginId": "official.sticker-thief",
-        "id": "plugin.official.sticker-thief.announceMessages",
-        "path": "announceMessages",
-        "label": "Group lines",
-        "description": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet. Up to 40 lines, 500 characters each.",
-        "section": "Sticker Thief",
-        "order": 80,
-        "schema": {
-          "type": "array",
-          "max": 40,
-          "items": {
-            "type": "string",
-            "max": 500
-          }
-        },
-        "ui": {
-          "widget": "text",
-          "helpText": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet. Up to 40 lines, 500 characters each.",
-          "multiline": true
-        }
-      },
-      {
-        "pluginId": "official.sticker-thief",
         "id": "plugin.official.sticker-thief.announceChancePercent",
         "path": "announceChancePercent",
         "label": "Group line chance",
-        "description": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown.",
+        "description": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. Write the lines in Bot messages and filter by the topic Announce. Each line uses the message editor: source text, automatic translation, mentions, and attachments. Empty lines stay quiet. The bot walks the filled lines in order.",
         "section": "Sticker Thief",
-        "order": 82,
+        "order": 80,
         "schema": {
           "type": "number",
           "min": 0,
@@ -465,7 +443,7 @@
         },
         "ui": {
           "widget": "number",
-          "helpText": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown."
+          "helpText": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. Write the lines in Bot messages and filter by the topic Announce. Each line uses the message editor: source text, automatic translation, mentions, and attachments. Empty lines stay quiet. The bot walks the filled lines in order."
         }
       },
       {
@@ -475,7 +453,7 @@
         "label": "Group line cooldown",
         "description": "Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll.",
         "section": "Sticker Thief",
-        "order": 84,
+        "order": 82,
         "schema": {
           "type": "number",
           "min": 0,
@@ -488,6 +466,11 @@
         }
       }
     ],
-    "internalConfigPaths": []
+    "internalConfigPaths": [
+      {
+        "path": "announceMessages",
+        "reason": "Lines saved before the Bot message editor. A filled Announce line replaces this list."
+      }
+    ]
   }
 }

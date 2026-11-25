@@ -28,8 +28,11 @@ import {
   FAVORITE_BATCH_SIZE,
   FAVORITE_BATCH_SPACING_MS,
   FAVORITE_RETRY_BASE_MS,
-  FAVORITE_RETRY_MAX_MS
+  FAVORITE_RETRY_MAX_MS,
+  STICKER_THIEF_GROUP_LINE_KEYS,
+  STICKER_THIEF_NAMESPACE
 } from './constants';
+import { withMessageSlot } from './messageSlot';
 import {
   advanceBackfillChat,
   backfillChat,
@@ -60,6 +63,7 @@ import {
   type SubscriptionRow,
   type BackfillSummary
 } from './store';
+import type { TranslateFn } from '@wabs/plugin-sdk/i18n';
 import { parseWebPInfo } from './webp';
 
 export interface StickerThiefDeps {
@@ -164,17 +168,43 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
   return recordStaged(deps, db, { scopeId, stanzaId, media: staged.media, seenAt: nowFrom(deps) });
 }
 
+export interface GroupLine {
+  key: string;
+  text: string;
+}
+
+/** Filled Bot-message lines, in editor order. A blank line and an unresolved key stay quiet. */
+export function catalogGroupLines(translate: TranslateFn): GroupLine[] {
+  return STICKER_THIEF_GROUP_LINE_KEYS.flatMap((key) => {
+    const text = translate(key).trim();
+    if (!text || text === key) return [];
+    return [{ key, text }];
+  });
+}
+
 /**
  * The next configured line for a sticker that was just collected, or nothing.
  * Archive imports never call this. Observe mode and a missed roll stay quiet.
+ * `lines` is the Bot-message catalog. When it has text it replaces a list saved by the old control.
  */
 export async function announceNewSticker(
   deps: StickerThiefDeps,
-  input: { scopeId: string; chatId: string; stickerId: number; managementMode?: string | undefined }
+  input: {
+    scopeId: string;
+    chatId: string;
+    stickerId: number;
+    managementMode?: string | undefined;
+    lines?: GroupLine[] | undefined;
+  }
 ): Promise<PluginAction[]> {
   if (input.managementMode !== 'ASSIST' && input.managementMode !== 'MANAGE') return [];
   const config = await configFor(deps, input.scopeId);
-  const messages = config.announceMessages;
+  const messages = input.lines?.length
+    ? input.lines
+    : config.announceMessages.map((text, index) => ({
+      key: `${STICKER_THIEF_NAMESPACE}.announce.legacy.${index + 1}`,
+      text
+    }));
   if (!config.enabled || messages.length === 0 || config.announceChancePercent <= 0) return [];
   const db = stickerDatabase(deps);
   if (!db) return [];
@@ -188,13 +218,14 @@ export async function announceNewSticker(
     roll: deps.random ?? Math.random
   });
   if (!claimed) return [];
-  const text = messages[claimed.index];
-  if (!text) return [];
+  const line = messages[claimed.index];
+  if (!line?.text) return [];
   return [{
     type: 'message.sendText',
     chatId: input.chatId,
-    text,
-    idempotencyKey: `sticker-thief:boast:${input.scopeId}:${input.chatId}:${input.stickerId}`
+    text: line.text,
+    idempotencyKey: `sticker-thief:boast:${input.scopeId}:${input.chatId}:${input.stickerId}`,
+    ...withMessageSlot(line.key, undefined, input.scopeId)
   }];
 }
 

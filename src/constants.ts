@@ -1,6 +1,12 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.9.12';
+export const STICKER_THIEF_VERSION = '0.9.13';
+/** Editable group lines. Empty Bot-message text stays quiet, so an operator fills only the lines they want. */
+export const STICKER_THIEF_GROUP_LINE_COUNT = 8;
+export const STICKER_THIEF_GROUP_LINE_KEYS = Array.from(
+  { length: STICKER_THIEF_GROUP_LINE_COUNT },
+  (_, index) => `${STICKER_THIEF_NAMESPACE}.announce.line.${index + 1}`
+);
 /** 0.3.21 lets console operations read the plugin's stored media (sticker previews). */
 export const STICKER_THIEF_CORE_API_RANGE = '^0.3.21';
 export const STICKER_THIEF_DATABASE = 'stickers';

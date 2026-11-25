@@ -46,5 +46,13 @@
   "official.sticker-thief.digestHeader": "Aqui tens {count} sticker(s) novo(s) do teu grupo.",
   "official.sticker-thief.forgetUsage": "Responde a um sticker com /stickers forget para o removeres.",
   "official.sticker-thief.forgetNotFound": "Esse sticker não está na coleção deste grupo.",
-  "official.sticker-thief.forgotten": "Sticker removido. Não o vou voltar a recolher aqui."
+  "official.sticker-thief.forgotten": "Sticker removido. Não o vou voltar a recolher aqui.",
+  "official.sticker-thief.announce.line.1": "",
+  "official.sticker-thief.announce.line.2": "",
+  "official.sticker-thief.announce.line.3": "",
+  "official.sticker-thief.announce.line.4": "",
+  "official.sticker-thief.announce.line.5": "",
+  "official.sticker-thief.announce.line.6": "",
+  "official.sticker-thief.announce.line.7": "",
+  "official.sticker-thief.announce.line.8": ""
 }

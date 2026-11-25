@@ -1,4 +1,5 @@
 import type { MessageCatalog } from '@wabs/plugin-sdk/i18n';
+import { STICKER_THIEF_GROUP_LINE_KEYS } from './constants';
 
 const ns = 'official.sticker-thief';
 
@@ -50,5 +51,7 @@ export const stickerThiefMessages: MessageCatalog = {
   [`${ns}.digestHeader`]: 'Here are {count} new sticker(s) from your group.',
   [`${ns}.forgetUsage`]: 'Reply to a sticker with /stickers forget to remove it.',
   [`${ns}.forgetNotFound`]: 'That sticker is not in this group\'s collection.',
-  [`${ns}.forgotten`]: 'Sticker removed. I will not collect it again here.'
+  [`${ns}.forgotten`]: 'Sticker removed. I will not collect it again here.',
+  // Empty on purpose. The operator writes these in Bot messages; a blank line is not sent.
+  ...Object.fromEntries(STICKER_THIEF_GROUP_LINE_KEYS.map((key) => [key, '']))
 };
