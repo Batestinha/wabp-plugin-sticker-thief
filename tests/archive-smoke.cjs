@@ -11,7 +11,13 @@ assert.equal(plugin.manifest.coreApiRange, manifest.coreApiRange);
 assert.equal(typeof plugin.registerHooks, 'function');
 assert.equal(typeof plugin.registerCommands, 'function');
 const pt = JSON.parse(fs.readFileSync(path.join(root, 'locales/pt-PT', manifest.messageNamespace + '.json')));
-for (const key of Object.keys(plugin.manifest.defaultMessages)) assert.ok(pt[key]?.trim(), key);
+for (const [key, value] of Object.entries(plugin.manifest.defaultMessages)) {
+  if (!String(value).trim()) {
+    assert.equal(pt[key], '', key);
+    continue;
+  }
+  assert.ok(pt[key]?.trim(), key);
+}
 for (const database of manifest.databases) assert.ok(fs.readdirSync(path.join(root, database.migrations)).length, database.name);
 assert.ok(fs.existsSync(path.join(root, 'node_modules/@wabs/plugin-sdk/dist/managed-group-plugin.js')));
 assert.ok(fs.existsSync(path.join(root, 'node_modules/zod/LICENSE')));

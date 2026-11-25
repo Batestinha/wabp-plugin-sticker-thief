@@ -141,7 +141,7 @@ export const stickerThiefManifest: PluginManifest = {
       'Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.',
       'Every collected sticker is added to the bot account\'s favourite stickers (WhatsApp syncs favourites, not installed packs, across an account\'s devices); when WhatsApp waits for the phone to repair that list, favourites retry with growing delays and the operator console shows what is waiting.',
       'Members only receive stickers collected in groups of the same scope.',
-      'A group line is posted only after a live new sticker, in Assist or Manage, when lines and a chance are configured. Archive imports and repeated stickers stay quiet, and each group has its own cooldown.'
+      'A group line is posted only after a live new sticker, in Assist or Manage, when an Announce Bot message and a chance are configured. Archive imports and repeated stickers stay quiet, and each group has its own cooldown.'
     ],
     workflows: [
       { intent: 'sticker_subscribe', description: 'Start or stop private sticker digests.', commands: ['/stickers subscribe', '/stickers unsubscribe'] },

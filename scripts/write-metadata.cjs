@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const { stickerThiefManifest: m } = require('../dist/manifest.js');
-const { stickerThiefControls, stickerThiefConfigPaths } = require('../dist/controls.js');
+const { stickerThiefControls, stickerThiefConfigPaths, stickerThiefInternalConfigPaths } = require('../dist/controls.js');
 const pkg = require('../package.json');
 
 const metadata = {
@@ -36,7 +36,7 @@ const metadata = {
   operatorConsole: {
     configPaths: stickerThiefConfigPaths(),
     controls: stickerThiefControls.map(c => ({ pluginId: m.pluginId, ...c })),
-    internalConfigPaths: []
+    internalConfigPaths: stickerThiefInternalConfigPaths()
   }
 };
 fs.writeFileSync(path.join(root, 'wa-plugin.json'), JSON.stringify(metadata, null, 2) + '\n');

@@ -6,9 +6,12 @@ const { harness, webp } = require('./helpers.cjs');
 const SCOPE = 'scope-1';
 const LINES = ['Got one.', 'Got another.', 'And another.'];
 
-function setup(config = {}, random = () => 0) {
+function setup(config = {}, random = () => 0, catalog) {
   const h = harness({ config });
   h.context.random = random;
+  if (catalog) {
+    h.context.i18n.translatorForScope = async () => (key) => catalog[key] ?? key;
+  }
   return { ...h, hooks: plugin.registerHooks(h.context) };
 }
 
@@ -62,6 +65,23 @@ test('each group keeps its own cursor and cooldown', async () => {
   h.setNow('2026-11-01T13:00:00.000Z');
   assert.deepEqual(linesOf((await steal(h, { salt: 'a3', chatId: 'a@g.us' })).actions), ['Got another.']);
   assert.deepEqual(linesOf((await steal(h, { salt: 'b2', chatId: 'b@g.us' })).actions), ['Got another.']);
+});
+
+test('a filled Announce line replaces the old text list and keeps its slot', async () => {
+  const key = 'official.sticker-thief.announce.line.2';
+  const h = setup(
+    { announceMessages: LINES, announceChancePercent: 100, announceCooldownMinutes: 0 },
+    () => 0,
+    { [key]: 'Got one, with a comma.' }
+  );
+  const hit = await steal(h, { salt: 'catalog' });
+  assert.deepEqual(linesOf(hit.actions), ['Got one, with a comma.']);
+  assert.deepEqual(hit.actions[0].messageSlot, { key, scopeId: SCOPE });
+  const quiet = setup({ announceMessages: LINES, announceChancePercent: 100 }, () => 0, {
+    'official.sticker-thief.announce.line.1': '   ',
+    'official.sticker-thief.announce.line.2': key
+  });
+  assert.deepEqual(linesOf((await steal(quiet, { salt: 'blank' })).actions), LINES.slice(0, 1));
 });
 
 test('observe mode and a repeated sticker stay quiet', async () => {

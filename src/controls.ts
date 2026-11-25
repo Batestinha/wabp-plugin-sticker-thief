@@ -46,14 +46,20 @@ export const stickerThiefControls: StickerThiefControl[] = [
   },
   control('defaultCadence', 'Default cadence', 'Digest cadence used when a member subscribes without choosing one.', 70,
     { type: 'enum', enum: [{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }] }, 'segmented'),
-  control('announceMessages', 'Group lines', 'Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet. Up to 40 lines, 500 characters each.', 80,
-    { type: 'array', max: 40, items: { type: 'string', max: 500 } }, 'text', { multiline: true }),
-  control('announceChancePercent', 'Group line chance', 'Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown.', 82,
+  control('announceChancePercent', 'Group line chance', 'Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. Write the lines in Bot messages and filter by the topic Announce. Each line uses the message editor: source text, automatic translation, mentions, and attachments. Empty lines stay quiet. The bot walks the filled lines in order.', 80,
     { type: 'number', min: 0, max: 100 }, 'number'),
-  control('announceCooldownMinutes', 'Group line cooldown', 'Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll.', 84,
+  control('announceCooldownMinutes', 'Group line cooldown', 'Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll.', 82,
     { type: 'number', min: 0, max: 43_200, unit: 'minutes' }, 'number')
 ];
 
 export function stickerThiefConfigPaths(): string[] {
   return Object.keys(stickerThiefConfigSchema.parse({}));
+}
+
+/** Kept so a list saved by 0.9.12 still loads. The console edits the lines as Bot messages. */
+export function stickerThiefInternalConfigPaths(): Array<{ path: string; reason: string }> {
+  return [{
+    path: 'announceMessages',
+    reason: 'Lines saved before the Bot message editor. A filled Announce line replaces this list.'
+  }];
 }

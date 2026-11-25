@@ -27,13 +27,16 @@ than one); add `--chat <name>` to pick one directly.
   are skipped. Files are stored once by SHA-256 in the plugin media store,
   however many groups share them. A sticker the account has already stored is
   not a new collection.
-- **Group lines** are optional. When `announceMessages` has at least one line
-  and `announceChancePercent` is above 0, each new live collection in Assist or
-  Manage rolls that chance. A hit posts the next line in the group the sticker
-  came from, then waits `announceCooldownMinutes` before that group can hear
-  another one. A miss does not start the wait. Each group walks the list on its
-  own. Archive imports, repeats, Observe mode, an empty list, and a chance of 0
-  stay quiet. The default chance is 0.
+- **Group lines** are the eight Bot messages under the topic Announce. Write
+  them in the message editor: source text, automatic translation, mentions, and
+  attachments. Empty lines stay quiet. When at least one line has text and
+  `announceChancePercent` is above 0, each new live collection in Assist or
+  Manage rolls that chance. A hit posts the next filled line in the group the
+  sticker came from, then waits `announceCooldownMinutes` before that group can
+  hear another one. A miss does not start the wait. Each group walks the filled
+  lines on its own. Archive imports, repeats, Observe mode, blank lines, and a
+  chance of 0 stay quiet. The default chance is 0. A list saved by the old text
+  control is still used until an Announce line has text.
 - **Privacy boundary**: stickers are delivered only to current members of the
   scope they were collected in. A subscriber who leaves is unsubscribed at the
   next digest.
@@ -60,7 +63,7 @@ than one); add `--chat <name>` to pick one directly.
 | `backfillArchive` | `true` | Also import stickers already stored in the chat archive. |
 | `favoriteOnBotAccount` | `true` | Add collected stickers to the bot account's favourite stickers. |
 | `defaultCadence` | `daily` | Cadence when `subscribe` has no argument. |
-| `announceMessages` | `[]` | Lines posted in the group a new sticker came from. Empty stays quiet. |
+| `announceMessages` | `[]` | Legacy line list. Bot messages under Announce replace it once any of those lines has text. |
 | `announceChancePercent` | `0` | Chance, in percent, of posting the next line. `0` never posts. |
 | `announceCooldownMinutes` | `60` | Minutes before the same group can get another line. `0` waits nothing. |
 
