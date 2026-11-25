@@ -46,7 +46,7 @@ export const stickerThiefControls: StickerThiefControl[] = [
   },
   control('defaultCadence', 'Default cadence', 'Digest cadence used when a member subscribes without choosing one.', 70,
     { type: 'enum', enum: [{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }] }, 'segmented'),
-  control('announceChancePercent', 'Group line chance', 'Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. Write the lines in Bot messages and filter by the topic Announce. Each line uses the message editor: source text, automatic translation, mentions, and attachments. Empty lines stay quiet. The bot walks the filled lines in order.', 80,
+  control('announceChancePercent', 'Group line chance', 'Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. In Bot messages, filter by Announce. Each line can have text, attachments, or both. The bot walks the configured lines in order.', 80,
     { type: 'number', min: 0, max: 100 }, 'number'),
   control('announceCooldownMinutes', 'Group line cooldown', 'Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll.', 82,
     { type: 'number', min: 0, max: 43_200, unit: 'minutes' }, 'number')
@@ -60,6 +60,6 @@ export function stickerThiefConfigPaths(): string[] {
 export function stickerThiefInternalConfigPaths(): Array<{ path: string; reason: string }> {
   return [{
     path: 'announceMessages',
-    reason: 'Lines saved before the Bot message editor. A filled Announce line replaces this list.'
+    reason: 'Lines saved before the Bot message editor. An Announce line with text or attachments replaces this list.'
   }];
 }

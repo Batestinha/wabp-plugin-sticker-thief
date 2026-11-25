@@ -1,6 +1,6 @@
 export const STICKER_THIEF_PLUGIN_ID = 'official.sticker-thief';
 export const STICKER_THIEF_NAMESPACE = 'official.sticker-thief';
-export const STICKER_THIEF_VERSION = '0.9.13';
+export const STICKER_THIEF_VERSION = '0.9.14';
 /** Editable group lines. Empty Bot-message text stays quiet, so an operator fills only the lines they want. */
 export const STICKER_THIEF_GROUP_LINE_COUNT = 8;
 export const STICKER_THIEF_GROUP_LINE_KEYS = Array.from(
