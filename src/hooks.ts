@@ -2,6 +2,7 @@ import type { PluginAction } from '@wabs/plugin-sdk/actions';
 import type { PluginJobEvent, PluginRuntimeHooks } from '@wabs/plugin-sdk/hooks';
 import type { StableIdentityAddressResolution } from '@wabs/plugin-sdk/identity';
 import type { TranslateFn } from '@wabs/plugin-sdk/i18n';
+import { withMessageSlot } from './messageSlot';
 import type { PluginEnabledScope } from '@wabs/plugin-sdk/integration-plugin';
 import {
   STICKER_THIEF_BACKFILL_JOB,
@@ -140,6 +141,7 @@ export async function runDigest(context: StickerThiefHookContext, job: PluginJob
       requiredRemoteChatId: address.deliveryChatId,
       abortBatchOnFailure: true,
       text: header,
+      ...withMessageSlot(`${STICKER_THIEF_NAMESPACE}.digestHeader`),
       idempotencyKey: `sticker-thief:digest:${job.scopeId}:${payload.identityId}:${payload.dueAt}`
     }] : []),
     ...actions
