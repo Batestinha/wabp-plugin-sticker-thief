@@ -1,3 +1,4 @@
+import { withMessageSlot } from './messageSlot';
 import type { CommandContext, CommandResult } from '@wabs/plugin-sdk/commands';
 import { requireScopeId } from '@wabs/plugin-sdk/commands';
 import type { CommandMetadata, CommandTargetSpec } from '@wabs/plugin-sdk/command-metadata';
@@ -64,7 +65,13 @@ function args(ctx: CommandContext): string[] {
   return ctx.remainingArgs ?? ctx.command.args;
 }
 
-function reply(text: string, extra: Partial<CommandResult> = {}): CommandResult {
+function reply(
+  text: string,
+  extra: Partial<CommandResult> | ReturnType<typeof withMessageSlot> = {},
+  slot?: ReturnType<typeof withMessageSlot>
+): CommandResult {
+  if (slot) return { handled: true, text, ...(extra as Partial<CommandResult>), ...slot };
+  if (extra && 'messageSlot' in extra) return { handled: true, text, ...extra };
   return { handled: true, text, ...extra };
 }
 
@@ -83,11 +90,11 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
   }), async (ctx) => {
     const call = invocation(ctx);
     const config = await configFor(deps, call.scopeId, call.identityId);
-    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
+    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`), withMessageSlot(`${ns}.disabled`));
     const requested = args(ctx)[0]?.toLowerCase();
-    if (requested && !isCadence(requested)) return reply(ctx.t(`${ns}.subscribeUsage`));
+    if (requested && !isCadence(requested)) return reply(ctx.t(`${ns}.subscribeUsage`), withMessageSlot(`${ns}.subscribeUsage`));
     const db = stickerDatabase(deps);
-    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    if (!db) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
     const cadence = requested && isCadence(requested) ? requested : config.defaultCadence;
     const subscription = upsertSubscription(db, call.scopeId, call.identityId, cadence, nowFrom(deps));
     await scheduleDigest(deps, subscription);
@@ -96,7 +103,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     return reply(ctx.t(`${ns}.subscribed`, {
       cadence: ctx.t(`${ns}.cadence.${cadence}`),
       available: stats.unseen
-    }));
+    }), withMessageSlot(`${ns}.subscribed`));
   });
 
   router.register('stickers', 'unsubscribe', stickerCommand({
@@ -104,7 +111,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
   }), async (ctx) => {
     const call = invocation(ctx);
     const db = stickerDatabase(deps);
-    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    if (!db) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
     return reply(ctx.t(deleteSubscription(db, call.scopeId, call.identityId) ? `${ns}.unsubscribed` : `${ns}.notSubscribed`));
   });
 
@@ -113,9 +120,9 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
   }), async (ctx) => {
     const call = invocation(ctx);
     const config = await configFor(deps, call.scopeId, call.identityId);
-    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
+    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`), withMessageSlot(`${ns}.disabled`));
     const db = stickerDatabase(deps);
-    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    if (!db) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
     const stats = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
     const subscription = getSubscription(db, call.scopeId, call.identityId);
     return reply(ctx.t(`${ns}.status`, {
@@ -128,7 +135,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
             next: `${subscription.next_due_at.slice(0, 16).replace('T', ' ')} UTC`
           })
         : ctx.t(`${ns}.status.notSubscribed`)
-    }));
+    }), withMessageSlot(`${ns}.status`));
   });
 
   async function sendStickers(ctx: CommandContext, call: Invocation, config: StickerThiefConfig, db: PluginDatabase, stickerIds: number[]): Promise<CommandResult | undefined> {
@@ -153,6 +160,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
         requiredRemoteChatId: call.deliveryChatId,
         abortBatchOnFailure: true,
         text: ctx.t(key, { count: stickerIds.length, packs: delivery.packCount }),
+        ...withMessageSlot(key),
         idempotencyKey: `sticker-thief:${delivery.deliveryId}:introduction`
       }, ...actions]
     };
@@ -161,10 +169,10 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
   async function prepared(ctx: CommandContext): Promise<{ call: Invocation; config: StickerThiefConfig; db: PluginDatabase } | CommandResult> {
     const call = invocation(ctx);
     const config = await configFor(deps, call.scopeId, call.identityId);
-    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`));
-    if (ctx.managementMode === 'OBSERVE') return reply(ctx.t(`${ns}.observeOnly`));
+    if (!config.enabled) return reply(ctx.t(`${ns}.disabled`), withMessageSlot(`${ns}.disabled`));
+    if (ctx.managementMode === 'OBSERVE') return reply(ctx.t(`${ns}.observeOnly`), withMessageSlot(`${ns}.observeOnly`));
     const db = stickerDatabase(deps);
-    if (!db || !deps.mediaStore) return reply(ctx.t(`${ns}.unavailable`));
+    if (!db || !deps.mediaStore) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
     return { call, config, db };
   }
 
@@ -204,9 +212,9 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
       scopeId: call.scopeId, identityId: call.identityId, includeAnimated: config.includeAnimated,
       limit: Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0
     });
-    if (!stickerIds.length) return reply(ctx.t(`${ns}.nothingToResend`));
+    if (!stickerIds.length) return reply(ctx.t(`${ns}.nothingToResend`), withMessageSlot(`${ns}.nothingToResend`));
     clearDeliveries(db, call.scopeId, call.identityId, stickerIds);
-    return (await sendStickers(ctx, call, config, db, stickerIds)) ?? reply(ctx.t(`${ns}.nothingToResend`));
+    return (await sendStickers(ctx, call, config, db, stickerIds)) ?? reply(ctx.t(`${ns}.nothingToResend`), withMessageSlot(`${ns}.nothingToResend`));
   });
 
   router.register('stickers', 'forget', stickerCommand({
@@ -215,11 +223,11 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
   }), async (ctx) => {
     const call = invocation(ctx);
     const quoted = ctx.message.replyTo?.messageId;
-    if (!quoted) return reply(ctx.t(`${ns}.forgetUsage`));
+    if (!quoted) return reply(ctx.t(`${ns}.forgetUsage`), withMessageSlot(`${ns}.forgetUsage`));
     const db = stickerDatabase(deps);
-    if (!db) return reply(ctx.t(`${ns}.unavailable`));
+    if (!db) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
     const result = forgetStickerBySighting(db, call.scopeId, stanzaIdOf(quoted), call.identityId, nowFrom(deps));
-    if (result.kind === 'not-found') return reply(ctx.t(`${ns}.forgetNotFound`));
+    if (result.kind === 'not-found') return reply(ctx.t(`${ns}.forgetNotFound`), withMessageSlot(`${ns}.forgetNotFound`));
     if (result.orphanMediaId) {
       // Take it out of the bot account's favourites too, while its file still exists.
       if (result.wasFavorited && deps.accountStickers) {
@@ -235,6 +243,6 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     }
     return reply(ctx.t(`${ns}.forgotten`), {
       pluginActions: [{ type: 'audit.record', action: 'sticker-thief.forget', targetJson: { scopeId: call.scopeId, sha256: result.sha256 } }]
-    });
+    }, withMessageSlot(`${ns}.forgotten`));
   });
 }
