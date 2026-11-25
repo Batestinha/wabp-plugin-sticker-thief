@@ -83,6 +83,23 @@ test('uses the configured limit only without a number, hides animated stickers w
   assert.match((await h.command('send')).text, /noNewStickers/);
 });
 
+test('subscription confirmations resolve the count in both the default and previously saved wording', async () => {
+  const key = 'official.sticker-thief.subscribed';
+  const catalog = plugin.manifest.defaultMessages;
+  const translate = (messages) => (key, params = {}) =>
+    messages[key].replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token);
+  const unlimited = setup();
+  const current = await unlimited.command('subscribe', { t: translate(catalog) });
+  assert.match(current.text, /Stickers per delivery: all\./);
+  assert.equal(current.messageSlot.key, key);
+
+  const limited = setup({ config: { digestSize: 2 } });
+  const saved = { ...catalog, [key]: 'Subscribe {cadence} and receive up to {count} new stickers. Waiting now: {available}.' };
+  const legacy = await limited.command('subscribe', { t: translate(saved) });
+  assert.equal(legacy.text, 'Subscribe daily and receive up to 2 new stickers. Waiting now: 0.');
+  assert.equal(legacy.messageSlot.key, key);
+});
+
 test('subscribing schedules a digest that sends a header plus new stickers and reschedules itself', async () => {
   const h = setup({ members: ['alice'], config: { digestSize: 2 } });
   for (const salt of ['a', 'b', 'c']) await collectSticker(h.context, SCOPE, h.addSticker(webp({ salt })));

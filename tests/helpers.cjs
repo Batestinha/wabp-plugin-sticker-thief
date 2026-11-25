@@ -144,7 +144,9 @@ function harness({ config = {}, members, archiveChats, coveredChats } = {}) {
       files.set(message.id, { buffer, mimeType: overrides.mimeType ?? 'image/webp' });
       return message;
     },
-    async command(name, { args = [], identityId = 'alice', scopeId = 'scope-1', managementMode = 'ASSIST', replyTo, execute = true } = {}) {
+    async command(name, { args = [], identityId = 'alice', scopeId = 'scope-1', managementMode = 'ASSIST', replyTo, execute = true,
+      t = (key, params) => `${key}${params ? ' ' + JSON.stringify(params) : ''}`
+    } = {}) {
       const entry = handlers.get(`stickers ${name}`);
       if (!entry) throw new Error('unregistered command ' + name);
       const result = await entry.handler({
@@ -152,7 +154,7 @@ function harness({ config = {}, members, archiveChats, coveredChats } = {}) {
         command: { namespace: 'stickers', subcommand: name, args },
         actor: { wid: `${identityId}@lid`, fromMe: false, identityAddress: { identityId, deliveryChatId: `${identityId}@lid` } },
         scopeId, managementMode, locale: 'en',
-        t: (key, params) => `${key}${params ? ' ' + JSON.stringify(params) : ''}`
+        t
       });
       if (execute) await executeActions(result.pluginActions);
       return { ...result, stickerActions: result.pluginActions?.filter(action => ['message.sendSticker', 'message.sendStickerPack'].includes(action.type)) };

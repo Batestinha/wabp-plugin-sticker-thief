@@ -102,6 +102,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     const stats = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
     return reply(ctx.t(`${ns}.subscribed`, {
       cadence: ctx.t(`${ns}.cadence.${cadence}`),
+      count: config.digestSize || ctx.t(`${ns}.digestUnlimited`),
       available: stats.unseen
     }), withMessageSlot(`${ns}.subscribed`));
   });
