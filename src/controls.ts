@@ -14,7 +14,7 @@ export interface StickerThiefControl {
   relatedActionIds?: string[] | undefined;
 }
 
-function control(path: string, label: string, description: string, order: number, schema: Record<string, unknown>, widget: string): StickerThiefControl {
+function control(path: string, label: string, description: string, order: number, schema: Record<string, unknown>, widget: string, ui: Record<string, unknown> = {}): StickerThiefControl {
   return {
     id: `plugin.official.sticker-thief.${path}`,
     path,
@@ -23,7 +23,7 @@ function control(path: string, label: string, description: string, order: number
     section: 'Sticker Thief',
     order,
     schema,
-    ui: { widget, helpText: description }
+    ui: { widget, helpText: description, ...ui }
   };
 }
 
@@ -45,7 +45,13 @@ export const stickerThiefControls: StickerThiefControl[] = [
     relatedActionIds: [STICKER_THIEF_REIMPORT_ACTION_ID]
   },
   control('defaultCadence', 'Default cadence', 'Digest cadence used when a member subscribes without choosing one.', 70,
-    { type: 'enum', enum: [{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }] }, 'segmented')
+    { type: 'enum', enum: [{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }] }, 'segmented'),
+  control('announceMessages', 'Group lines', 'Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet.', 80,
+    { type: 'array', items: { type: 'string', maxLength: 500 }, maxItems: 40 }, 'list', { multiline: true }),
+  control('announceChancePercent', 'Group line chance', 'Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown.', 82,
+    { type: 'number', min: 0, max: 100 }, 'number'),
+  control('announceCooldownMinutes', 'Group line cooldown', 'Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll.', 84,
+    { type: 'number', min: 0, max: 43_200, unit: 'minutes' }, 'number')
 ];
 
 export function stickerThiefConfigPaths(): string[] {

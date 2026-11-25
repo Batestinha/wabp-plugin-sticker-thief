@@ -48,6 +48,7 @@ import {
   recordArchiveStickerSend,
   recordDeliveries,
   recordPackDelivery,
+  claimGroupAnnouncement,
   recordKnownSticker,
   recordSticker,
   stickerCollectedByHash,
@@ -76,6 +77,8 @@ export interface StickerThiefDeps {
   enqueuePluginJob?: ((input: PluginJobInput) => Promise<unknown>) | undefined;
   configFor?: ((scopeId: string, actorIdentityId?: string | undefined) => Promise<Record<string, unknown>>) | undefined;
   now?: (() => Date) | undefined;
+  /** [0, 1). Tests pin this. Production uses Math.random. */
+  random?: (() => number) | undefined;
 }
 
 export function nowFrom(deps: StickerThiefDeps): Date {
@@ -138,7 +141,7 @@ async function recordStaged(
   return { ...result, buffer: stored.buffer };
 }
 
-/** Saves a newly seen group sticker. Never emits chat actions: collecting is silent. */
+/** Saves a newly seen group sticker. This function stays silent; the message hook may post a group line afterwards. */
 export async function collectSticker(deps: StickerThiefDeps, scopeId: string, message: NormalizedMessage): Promise<CollectOutcome> {
   if (message.type !== 'sticker' || message.fromMe || message.context !== 'group' || message.isHistoryMessage) {
     return { kind: 'skipped', reason: 'not-a-live-group-sticker' };
@@ -159,6 +162,40 @@ export async function collectSticker(deps: StickerThiefDeps, scopeId: string, me
   });
   if (!staged.ok) return { kind: 'skipped', reason: staged.reason };
   return recordStaged(deps, db, { scopeId, stanzaId, media: staged.media, seenAt: nowFrom(deps) });
+}
+
+/**
+ * The next configured line for a sticker that was just collected, or nothing.
+ * Archive imports never call this. Observe mode and a missed roll stay quiet.
+ */
+export async function announceNewSticker(
+  deps: StickerThiefDeps,
+  input: { scopeId: string; chatId: string; stickerId: number; managementMode?: string | undefined }
+): Promise<PluginAction[]> {
+  if (input.managementMode !== 'ASSIST' && input.managementMode !== 'MANAGE') return [];
+  const config = await configFor(deps, input.scopeId);
+  const messages = config.announceMessages;
+  if (!config.enabled || messages.length === 0 || config.announceChancePercent <= 0) return [];
+  const db = stickerDatabase(deps);
+  if (!db) return [];
+  const claimed = claimGroupAnnouncement(db, {
+    scopeId: input.scopeId,
+    chatId: input.chatId,
+    now: nowFrom(deps),
+    cooldownMs: config.announceCooldownMinutes * 60_000,
+    chancePercent: config.announceChancePercent,
+    messageCount: messages.length,
+    roll: deps.random ?? Math.random
+  });
+  if (!claimed) return [];
+  const text = messages[claimed.index];
+  if (!text) return [];
+  return [{
+    type: 'message.sendText',
+    chatId: input.chatId,
+    text,
+    idempotencyKey: `sticker-thief:boast:${input.scopeId}:${input.chatId}:${input.stickerId}`
+  }];
 }
 
 // ---------------------------------------------------------------------------

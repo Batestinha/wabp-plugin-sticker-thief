@@ -14,7 +14,17 @@ export const stickerThiefConfigSchema = z.object({
   favoriteOnBotAccount: z.boolean().default(true),
   /** Send deliveries as native WhatsApp sticker packs (falls back to single stickers when off). */
   deliverAsPacks: z.boolean().default(true),
-  defaultCadence: z.enum(['daily', 'weekly']).default('daily')
+  defaultCadence: z.enum(['daily', 'weekly']).default('daily'),
+  /**
+   * Lines that may be posted in the group a new sticker was just collected from.
+   * Empty stays quiet. Blank entries are dropped; a line longer than 500 characters is rejected.
+   */
+  announceMessages: z.array(z.string().max(500)).max(40).default([]).transform((items) =>
+    items.map((item) => item.trim()).filter((item) => item.length > 0)),
+  /** 0 never posts a group line. */
+  announceChancePercent: z.number().int().min(0).max(100).default(0),
+  /** Minutes before the same group can get another line. 0 allows one on every successful roll. */
+  announceCooldownMinutes: z.number().int().min(0).max(43_200).default(60)
 }).default({});
 
 export type StickerThiefConfig = z.infer<typeof stickerThiefConfigSchema>;

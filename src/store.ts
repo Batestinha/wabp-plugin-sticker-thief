@@ -449,6 +449,43 @@ export function clearFavoriteFailure(db: PluginDatabase, scopeId: string): void 
   db.run('DELETE FROM favorite_state WHERE scope_id = ?', scopeId);
 }
 
+export interface GroupAnnouncementClaim {
+  scopeId: string;
+  chatId: string;
+  now: Date;
+  cooldownMs: number;
+  chancePercent: number;
+  messageCount: number;
+  /** Returns a number in [0, 1). Called only after the cooldown has elapsed. */
+  roll: () => number;
+}
+
+/**
+ * Claims the next group line, or returns undefined when the cooldown is still
+ * running or the roll misses. A miss does not start the cooldown. The claim
+ * and the cursor advance are one transaction, so a burst keeps a single line.
+ */
+export function claimGroupAnnouncement(db: PluginDatabase, input: GroupAnnouncementClaim): { index: number } | undefined {
+  if (input.messageCount < 1 || input.chancePercent <= 0) return undefined;
+  return db.transaction(() => {
+    const row = db.get<{ last_sent_at: string | null; next_index: number }>(
+      'SELECT last_sent_at, next_index FROM group_announcements WHERE scope_id = ? AND chat_id = ?',
+      input.scopeId, input.chatId
+    );
+    const lastSent = row?.last_sent_at ? Date.parse(row.last_sent_at) : Number.NaN;
+    if (Number.isFinite(lastSent) && input.now.getTime() < lastSent + input.cooldownMs) return undefined;
+    const sample = input.roll();
+    if (!(sample >= 0 && sample < 1) || Math.floor(sample * 100) >= input.chancePercent) return undefined;
+    const index = (Number(row?.next_index) || 0) % input.messageCount;
+    db.run(
+      `INSERT INTO group_announcements (scope_id, chat_id, last_sent_at, next_index) VALUES (?, ?, ?, ?)
+       ON CONFLICT (scope_id, chat_id) DO UPDATE SET last_sent_at = excluded.last_sent_at, next_index = excluded.next_index`,
+      input.scopeId, input.chatId, input.now.toISOString(), index + 1
+    );
+    return { index };
+  });
+}
+
 export type GalleryFilter = 'all' | 'favorited' | 'pending';
 
 export interface GalleryStickerRow extends StickerRow {

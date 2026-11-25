@@ -8,7 +8,7 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.10",
+  "version": "0.9.11",
   "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -163,7 +163,8 @@
       "Stickers outside WhatsApp pack rules are resized and recompressed by the host (512x512, at most 100 KB still or 500 KB animated); animated ones may lose some frames.",
       "Archive backfill needs WABP core API 0.3.16 and only reads stickers the chat archive still stores.",
       "Every collected sticker is added to the bot account's favourite stickers (WhatsApp syncs favourites, not installed packs, across an account's devices); when WhatsApp waits for the phone to repair that list, favourites retry with growing delays and the operator console shows what is waiting.",
-      "Members only receive stickers collected in groups of the same scope."
+      "Members only receive stickers collected in groups of the same scope.",
+      "A group line is posted only after a live new sticker, in Assist or Manage, when lines and a chance are configured. Archive imports and repeated stickers stay quiet, and each group has its own cooldown."
     ],
     "workflows": [
       {
@@ -240,7 +241,10 @@
       "backfillArchive",
       "favoriteOnBotAccount",
       "deliverAsPacks",
-      "defaultCadence"
+      "defaultCadence",
+      "announceMessages",
+      "announceChancePercent",
+      "announceCooldownMinutes"
     ],
     "controls": [
       {
@@ -422,6 +426,65 @@
         "ui": {
           "widget": "segmented",
           "helpText": "Digest cadence used when a member subscribes without choosing one."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.announceMessages",
+        "path": "announceMessages",
+        "label": "Group lines",
+        "description": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet.",
+        "section": "Sticker Thief",
+        "order": 80,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 40
+        },
+        "ui": {
+          "widget": "list",
+          "helpText": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet.",
+          "multiline": true
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.announceChancePercent",
+        "path": "announceChancePercent",
+        "label": "Group line chance",
+        "description": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown.",
+        "section": "Sticker Thief",
+        "order": 82,
+        "schema": {
+          "type": "number",
+          "min": 0,
+          "max": 100
+        },
+        "ui": {
+          "widget": "number",
+          "helpText": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown."
+        }
+      },
+      {
+        "pluginId": "official.sticker-thief",
+        "id": "plugin.official.sticker-thief.announceCooldownMinutes",
+        "path": "announceCooldownMinutes",
+        "label": "Group line cooldown",
+        "description": "Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll.",
+        "section": "Sticker Thief",
+        "order": 84,
+        "schema": {
+          "type": "number",
+          "min": 0,
+          "max": 43200,
+          "unit": "minutes"
+        },
+        "ui": {
+          "widget": "number",
+          "helpText": "Minutes before the same group can get another line. Other groups keep their own clock. 0 allows a line on every successful roll."
         }
       }
     ],
