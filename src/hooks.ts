@@ -12,6 +12,7 @@ import {
   STICKER_THIEF_NAMESPACE
 } from './constants';
 import {
+  announceNewSticker,
   collectSticker,
   configFor,
   deliverBatch,
@@ -62,7 +63,16 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
       await startBackfill(context, event.scopeId, { onlyFirstTime: true });
       if (event.message.type !== 'sticker') return;
       const outcome = await collectSticker(context, event.scopeId, event.message);
-      if (outcome.kind === 'new') await scheduleFavorites(context, event.scopeId);
+      if (outcome.kind === 'new') {
+        await scheduleFavorites(context, event.scopeId);
+        const lines = await announceNewSticker(context, {
+          scopeId: event.scopeId,
+          chatId: event.message.chatId,
+          stickerId: outcome.stickerId,
+          managementMode: event.managementMode
+        });
+        if (lines.length) return lines;
+      }
       if (outcome.kind === 'skipped' && outcome.reason === 'storage-unavailable') {
         context.logger?.warn({ scopeId: event.scopeId }, 'Sticker Thief storage is unavailable; sticker not collected');
       }
