@@ -8,7 +8,7 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.11",
+  "version": "0.9.12",
   "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -433,20 +433,20 @@
         "id": "plugin.official.sticker-thief.announceMessages",
         "path": "announceMessages",
         "label": "Group lines",
-        "description": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet.",
+        "description": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet. Up to 40 lines, 500 characters each.",
         "section": "Sticker Thief",
         "order": 80,
         "schema": {
           "type": "array",
+          "max": 40,
           "items": {
             "type": "string",
-            "maxLength": 500
-          },
-          "maxItems": 40
+            "max": 500
+          }
         },
         "ui": {
-          "widget": "list",
-          "helpText": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet.",
+          "widget": "text",
+          "helpText": "Lines the bot may send in the group where it just collected a new sticker. It walks this list in order, one line per send. Leave it empty to stay quiet. Up to 40 lines, 500 characters each.",
           "multiline": true
         }
       },
