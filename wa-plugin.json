@@ -8,7 +8,7 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.13",
+  "version": "0.9.14",
   "coreApiRange": "^0.3.21",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -433,7 +433,7 @@
         "id": "plugin.official.sticker-thief.announceChancePercent",
         "path": "announceChancePercent",
         "label": "Group line chance",
-        "description": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. Write the lines in Bot messages and filter by the topic Announce. Each line uses the message editor: source text, automatic translation, mentions, and attachments. Empty lines stay quiet. The bot walks the filled lines in order.",
+        "description": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. In Bot messages, filter by Announce. Each line can have text, attachments, or both. The bot walks the configured lines in order.",
         "section": "Sticker Thief",
         "order": 80,
         "schema": {
@@ -443,7 +443,7 @@
         },
         "ui": {
           "widget": "number",
-          "helpText": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. Write the lines in Bot messages and filter by the topic Announce. Each line uses the message editor: source text, automatic translation, mentions, and attachments. Empty lines stay quiet. The bot walks the filled lines in order."
+          "helpText": "Percent chance of sending the next line when a new sticker is collected. 0 never sends. A miss does not start the cooldown. In Bot messages, filter by Announce. Each line can have text, attachments, or both. The bot walks the configured lines in order."
         }
       },
       {
@@ -469,7 +469,7 @@
     "internalConfigPaths": [
       {
         "path": "announceMessages",
-        "reason": "Lines saved before the Bot message editor. A filled Announce line replaces this list."
+        "reason": "Lines saved before the Bot message editor. An Announce line with text or attachments replaces this list."
       }
     ]
   }

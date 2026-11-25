@@ -80,6 +80,7 @@ export interface StickerThiefDeps {
   resolveStableIdentityById?: ((identityId: string) => Promise<{ deliveryChatId?: string | null | undefined }>) | undefined;
   enqueuePluginJob?: ((input: PluginJobInput) => Promise<unknown>) | undefined;
   configFor?: ((scopeId: string, actorIdentityId?: string | undefined) => Promise<Record<string, unknown>>) | undefined;
+  messageSlotsWithAttachments?(scopeId: string): Promise<ReadonlySet<string>>;
   now?: (() => Date) | undefined;
   /** [0, 1). Tests pin this. Production uses Math.random. */
   random?: (() => number) | undefined;
@@ -173,19 +174,19 @@ export interface GroupLine {
   text: string;
 }
 
-/** Filled Bot-message lines, in editor order. A blank line and an unresolved key stay quiet. */
-export function catalogGroupLines(translate: TranslateFn): GroupLine[] {
+/** Bot-message lines with deliverable content, in editor order. */
+export function catalogGroupLines(translate?: TranslateFn, attachedSlots?: ReadonlySet<string>): GroupLine[] {
   return STICKER_THIEF_GROUP_LINE_KEYS.flatMap((key) => {
-    const text = translate(key).trim();
-    if (!text || text === key) return [];
-    return [{ key, text }];
+    const translated = translate?.(key).trim() ?? '';
+    const text = translated === key ? '' : translated;
+    return text || attachedSlots?.has(key) ? [{ key, text }] : [];
   });
 }
 
 /**
  * The next configured line for a sticker that was just collected, or nothing.
  * Archive imports never call this. Observe mode and a missed roll stay quiet.
- * `lines` is the Bot-message catalog. When it has text it replaces a list saved by the old control.
+ * Bot-message lines with text or attachments replace a list saved by the old control.
  */
 export async function announceNewSticker(
   deps: StickerThiefDeps,
@@ -194,18 +195,21 @@ export async function announceNewSticker(
     chatId: string;
     stickerId: number;
     managementMode?: string | undefined;
-    lines?: GroupLine[] | undefined;
+    translate?: TranslateFn | undefined;
   }
 ): Promise<PluginAction[]> {
   if (input.managementMode !== 'ASSIST' && input.managementMode !== 'MANAGE') return [];
   const config = await configFor(deps, input.scopeId);
-  const messages = input.lines?.length
-    ? input.lines
+  if (!config.enabled || config.announceChancePercent <= 0) return [];
+  const attachedSlots = await deps.messageSlotsWithAttachments?.(input.scopeId);
+  const catalog = catalogGroupLines(input.translate, attachedSlots);
+  const messages = catalog.length
+    ? catalog
     : config.announceMessages.map((text, index) => ({
       key: `${STICKER_THIEF_NAMESPACE}.announce.legacy.${index + 1}`,
       text
     }));
-  if (!config.enabled || messages.length === 0 || config.announceChancePercent <= 0) return [];
+  if (messages.length === 0) return [];
   const db = stickerDatabase(deps);
   if (!db) return [];
   const claimed = claimGroupAnnouncement(db, {
@@ -219,7 +223,7 @@ export async function announceNewSticker(
   });
   if (!claimed) return [];
   const line = messages[claimed.index];
-  if (!line?.text) return [];
+  if (!line) return [];
   return [{
     type: 'message.sendText',
     chatId: input.chatId,

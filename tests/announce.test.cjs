@@ -6,11 +6,17 @@ const { harness, webp } = require('./helpers.cjs');
 const SCOPE = 'scope-1';
 const LINES = ['Got one.', 'Got another.', 'And another.'];
 
-function setup(config = {}, random = () => 0, catalog) {
+function setup(config = {}, random = () => 0, catalog, attachedSlots) {
   const h = harness({ config });
   h.context.random = random;
   if (catalog) {
     h.context.i18n.translatorForScope = async () => (key) => catalog[key] ?? key;
+  }
+  if (attachedSlots) {
+    h.context.messageSlotsWithAttachments = async (scopeId) => {
+      assert.equal(scopeId, SCOPE);
+      return attachedSlots;
+    };
   }
   return { ...h, hooks: plugin.registerHooks(h.context) };
 }
@@ -82,6 +88,27 @@ test('a filled Announce line replaces the old text list and keeps its slot', asy
     'official.sticker-thief.announce.line.2': key
   });
   assert.deepEqual(linesOf((await steal(quiet, { salt: 'blank' })).actions), LINES.slice(0, 1));
+});
+
+test('rotates attachment-only and text slots, skipping empty slots and the legacy list', async () => {
+  const attachmentOnly = 'official.sticker-thief.announce.line.2';
+  const textWithAttachment = 'official.sticker-thief.announce.line.4';
+  const h = setup(
+    { announceMessages: LINES, announceChancePercent: 100, announceCooldownMinutes: 60 },
+    () => 0,
+    { [textWithAttachment]: 'Got another.' },
+    new Set([attachmentOnly, textWithAttachment])
+  );
+
+  const first = await steal(h, { salt: 'attachment-only' });
+  assert.deepEqual(linesOf(first.actions), ['']);
+  assert.deepEqual(first.actions[0].messageSlot, { key: attachmentOnly, scopeId: SCOPE });
+  assert.deepEqual(linesOf((await steal(h, { salt: 'cooldown' })).actions), []);
+
+  h.setNow('2026-11-01T13:00:00.000Z');
+  const second = await steal(h, { salt: 'text-with-attachment' });
+  assert.deepEqual(linesOf(second.actions), ['Got another.']);
+  assert.deepEqual(second.actions[0].messageSlot, { key: textWithAttachment, scopeId: SCOPE });
 });
 
 test('observe mode and a repeated sticker stay quiet', async () => {

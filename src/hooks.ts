@@ -13,7 +13,6 @@ import {
 } from './constants';
 import {
   announceNewSticker,
-  catalogGroupLines,
   collectSticker,
   configFor,
   deliverBatch,
@@ -70,13 +69,12 @@ export function createStickerThiefHooks(context: StickerThiefHookContext): Plugi
       if (outcome.kind === 'new') {
         await scheduleFavorites(context, event.scopeId);
         const translate = await context.i18n?.translatorForScope?.(event.scopeId);
-        const catalog = translate ? catalogGroupLines(translate) : [];
         const lines = await announceNewSticker(context, {
           scopeId: event.scopeId,
           chatId: event.message.chatId,
           stickerId: outcome.stickerId,
           managementMode: event.managementMode,
-          ...(catalog.length ? { lines: catalog } : {})
+          translate
         });
         if (lines.length) return lines;
       }
