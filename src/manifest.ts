@@ -29,7 +29,9 @@ export const stickerThiefCommands = [
   '/stickers forget'
 ];
 
-export const stickerThiefManifest: PluginManifest & { integrations: [] } = {
+export const stickerThiefManifest: PluginManifest & {
+  integrations: { pluginId: string; versionRange: string; description: string }[];
+} = {
   pluginId: STICKER_THIEF_PLUGIN_ID,
   kind: 'managed_group',
   version: STICKER_THIEF_VERSION,
@@ -122,7 +124,11 @@ export const stickerThiefManifest: PluginManifest & { integrations: [] } = {
   databases: [{ name: STICKER_THIEF_DATABASE, engine: 'sqlite', scope: 'account', migrations: 'migrations/stickers' }],
   dataVersion: '4',
   dependencies: [],
-  integrations: [],
+  integrations: [{
+    pluginId: 'official.chat-archive',
+    versionRange: '>=1.0.0',
+    description: 'Lets members send retained stickers and sticker packs from the Chat Archive website to WhatsApp.'
+  }],
   cancellation: { workflows: [] },
   assistant: {
     summary: 'Collects stickers shared in managed groups, including those already in the chat archive, and sends them privately to members, on a subscription or on request.',

@@ -8,7 +8,7 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.16",
+  "version": "0.9.17",
   "coreApiRange": "^0.3.31",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
@@ -146,7 +146,13 @@
     "workflows": []
   },
   "dependencies": [],
-  "integrations": [],
+  "integrations": [
+    {
+      "pluginId": "official.chat-archive",
+      "versionRange": ">=1.0.0",
+      "description": "Lets members send retained stickers and sticker packs from the Chat Archive website to WhatsApp."
+    }
+  ],
   "assistant": {
     "summary": "Collects stickers shared in managed groups, including those already in the chat archive, and sends them privately to members, on a subscription or on request.",
     "useCases": [
