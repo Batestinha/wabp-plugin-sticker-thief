@@ -8,8 +8,8 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.15",
-  "coreApiRange": "^0.3.21",
+  "version": "0.9.16",
+  "coreApiRange": "^0.3.31",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -146,6 +146,7 @@
     "workflows": []
   },
   "dependencies": [],
+  "integrations": [],
   "assistant": {
     "summary": "Collects stickers shared in managed groups, including those already in the chat archive, and sends them privately to members, on a subscription or on request.",
     "useCases": [
