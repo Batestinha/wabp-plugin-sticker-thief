@@ -1,4 +1,5 @@
 import type { ManagedGroupPlugin } from '@wabs/plugin-sdk/managed-group-plugin';
+import { digestRegistration } from './subscriptions';
 import { registerStickerThiefCommands } from './commands';
 import { registerStickerThiefConsoleOperations } from './consoleOperations';
 import { registerStickerThiefExternalActions } from './externalActions';
@@ -7,6 +8,7 @@ import { stickerThiefManifest } from './manifest';
 
 export const stickerThiefPlugin: ManagedGroupPlugin = {
   manifest: stickerThiefManifest,
+  registerServices: ctx => [digestRegistration(ctx)],
   registerCommands(context) {
     registerStickerThiefCommands(context);
   },

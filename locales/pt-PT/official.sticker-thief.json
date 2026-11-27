@@ -1,4 +1,8 @@
 {
+  "official.sticker-thief.subscription.title": "Resumo de autocolantes",
+  "official.sticker-thief.subscription.off": "Desativado",
+  "official.sticker-thief.subscription.daily": "Diário",
+  "official.sticker-thief.subscription.weekly": "Semanal",
   "official.sticker-thief.description": "Recolhe autocolantes partilhados nos grupos onde está ativo e pode importar autocolantes dos arquivos de conversas. Os membros podem pedir autocolantes guardados ou subscrever envios privados diários ou semanais.",
   "official.sticker-thief.help.family": "Ladrão de Stickers",
   "official.sticker-thief.help.feature.title": "Ladrão de Stickers",

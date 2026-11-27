@@ -1,3 +1,4 @@
+import { digestPreference } from './subscriptions';
 import { withMessageSlot } from './messageSlot';
 import type { CommandContext, CommandResult } from '@wabs/plugin-sdk/commands';
 import { requireScopeId } from '@wabs/plugin-sdk/commands';
@@ -96,9 +97,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     const db = stickerDatabase(deps);
     if (!db) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
     const cadence = requested && isCadence(requested) ? requested : config.defaultCadence;
-    const subscription = upsertSubscription(db, call.scopeId, call.identityId, cadence, nowFrom(deps));
-    await scheduleDigest(deps, subscription);
-    await startBackfill(deps, call.scopeId, { onlyFirstTime: true });
+    await digestPreference(deps, call.scopeId, call.identityId, cadence);
     const stats = scopeStats(db, call.scopeId, call.identityId, config.includeAnimated);
     return reply(ctx.t(`${ns}.subscribed`, {
       cadence: ctx.t(`${ns}.cadence.${cadence}`),
@@ -113,7 +112,7 @@ export function registerStickerThiefCommands(context: ManagedGroupCommandContext
     const call = invocation(ctx);
     const db = stickerDatabase(deps);
     if (!db) return reply(ctx.t(`${ns}.unavailable`), withMessageSlot(`${ns}.unavailable`));
-    return reply(ctx.t(deleteSubscription(db, call.scopeId, call.identityId) ? `${ns}.unsubscribed` : `${ns}.notSubscribed`));
+    return reply(ctx.t((await digestPreference(deps, call.scopeId, call.identityId, 'off'))?.changed ? `${ns}.unsubscribed` : `${ns}.notSubscribed`));
   });
 
   router.register('stickers', 'status', stickerCommand({
