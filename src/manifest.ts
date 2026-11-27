@@ -29,7 +29,7 @@ export const stickerThiefCommands = [
   '/stickers forget'
 ];
 
-export const stickerThiefManifest: PluginManifest = {
+export const stickerThiefManifest: PluginManifest & { integrations: [] } = {
   pluginId: STICKER_THIEF_PLUGIN_ID,
   kind: 'managed_group',
   version: STICKER_THIEF_VERSION,
@@ -122,6 +122,7 @@ export const stickerThiefManifest: PluginManifest = {
   databases: [{ name: STICKER_THIEF_DATABASE, engine: 'sqlite', scope: 'account', migrations: 'migrations/stickers' }],
   dataVersion: '4',
   dependencies: [],
+  integrations: [],
   cancellation: { workflows: [] },
   assistant: {
     summary: 'Collects stickers shared in managed groups, including those already in the chat archive, and sends them privately to members, on a subscription or on request.',
