@@ -8,7 +8,7 @@ export const STICKER_THIEF_GROUP_LINE_KEYS = Array.from(
   (_, index) => `${STICKER_THIEF_NAMESPACE}.announce.line.${index + 1}`
 );
 /** 0.3.21 lets console operations read the plugin's stored media (sticker previews). */
-export const STICKER_THIEF_CORE_API_RANGE = '^0.3.21';
+export const STICKER_THIEF_CORE_API_RANGE = '^0.3.31';
 export const STICKER_THIEF_DATABASE = 'stickers';
 export const STICKER_THIEF_DIGEST_JOB = 'sticker-thief.digest';
 export const STICKER_THIEF_DELIVER_JOB = 'sticker-thief.deliver';
