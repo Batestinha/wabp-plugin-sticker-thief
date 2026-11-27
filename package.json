@@ -1,6 +1,6 @@
 {
   "name": "@wabs/plugin-sticker-thief",
-  "version": "0.9.17",
+  "version": "0.10.0",
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "license": "MIT",
   "private": true,
@@ -33,7 +33,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@wabs/plugin-sdk": "file:vendor/wabs-plugin-sdk-0.3.33-b5b80b668a99.tgz",
+    "@wabs/plugin-sdk": "file:vendor/wabs-plugin-sdk-0.3.43-b388beb42bea.tgz",
     "zod": "3.25.76"
   },
   "devDependencies": {

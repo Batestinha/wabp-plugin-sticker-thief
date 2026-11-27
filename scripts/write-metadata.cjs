@@ -8,7 +8,8 @@ const { stickerThiefControls, stickerThiefConfigPaths, stickerThiefInternalConfi
 const pkg = require('../package.json');
 
 const metadata = {
-  schemaVersion: 2,
+  schemaVersion: 3,
+  memberSubscriptions: m.memberSubscriptions ?? [],
   pluginId: m.pluginId,
   name: 'Sticker Thief',
   author: { name: 'Batestinha', url: 'https://github.com/Batestinha' },
@@ -20,6 +21,7 @@ const metadata = {
   messageNamespace: m.messageNamespace,
   descriptionKey: m.descriptionKey,
   commands: m.commands,
+  services: m.services,
   help: m.help,
   eventSubscriptions: m.eventSubscriptions,
   requiredPermissions: m.requiredPermissions,

@@ -1,3 +1,4 @@
+import { digestOffer, digestService } from './subscriptions';
 import type { PluginManifest } from '@wabs/plugin-sdk/manifest';
 import { stickerThiefConfigSchema } from './config';
 import {
@@ -36,6 +37,8 @@ export const stickerThiefManifest: PluginManifest & {
   kind: 'managed_group',
   version: STICKER_THIEF_VERSION,
   coreApiRange: STICKER_THIEF_CORE_API_RANGE,
+  memberSubscriptions: [digestOffer],
+  services: [digestService],
   messageNamespace: ns,
   descriptionKey: `${ns}.description`,
   defaultMessages: stickerThiefMessages,

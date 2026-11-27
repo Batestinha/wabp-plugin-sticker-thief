@@ -4,6 +4,10 @@ import { STICKER_THIEF_GROUP_LINE_KEYS } from './constants';
 const ns = 'official.sticker-thief';
 
 export const stickerThiefMessages: MessageCatalog = {
+  "official.sticker-thief.subscription.title": "Sticker digest",
+  "official.sticker-thief.subscription.off": "Off",
+  "official.sticker-thief.subscription.daily": "Daily",
+  "official.sticker-thief.subscription.weekly": "Weekly",
   [`${ns}.description`]: 'Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.',
   [`${ns}.help.family`]: 'Sticker Thief',
   [`${ns}.help.feature.title`]: 'Sticker Thief',

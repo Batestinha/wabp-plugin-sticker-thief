@@ -145,6 +145,21 @@ test('digests stop for members who left and are skipped (but kept) in OBSERVE sc
   assert.equal(observe.db.get('SELECT COUNT(*) AS n FROM deliveries').n, 0, 'nothing marked delivered');
 });
 
+test('the member digest service preserves a pending delivery when the member repeats a cadence', async () => {
+  const h = setup();
+  const service = plugin.registerServices(h.context).find(s => s.serviceId.endsWith('.subscriptions.v1'));
+  const [read, set] = service.methods;
+  const call = { scopeId: SCOPE, actorIdentityId: 'alice' };
+  assert.deepEqual(await read.handler({}, call), { choice: 'off' });
+  await h.command('subscribe', { args: ['daily'] });
+  const before = (await h.command('status')).text;
+  h.setNow('2026-11-01T18:00:00Z');
+  assert.deepEqual(await set.handler({ choice: 'daily' }, call), { choice: 'daily' });
+  assert.equal((await h.command('status')).text, before);
+  await set.handler({ choice: 'off' }, call);
+  assert.match((await h.command('status')).text, /notSubscribed/);
+});
+
 test('unsubscribe, status and runtime re-seeding', async () => {
   const h = setup();
   await collectSticker(h.context, SCOPE, h.addSticker(webp()));

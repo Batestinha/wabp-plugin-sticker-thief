@@ -1,5 +1,28 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "memberSubscriptions": [
+    {
+      "id": "digest",
+      "kind": "internal",
+      "scope": "current",
+      "labelKey": "official.sticker-thief.subscription.title",
+      "serviceId": "official.sticker-thief.subscriptions.v1",
+      "choices": [
+        {
+          "id": "off",
+          "labelKey": "official.sticker-thief.subscription.off"
+        },
+        {
+          "id": "daily",
+          "labelKey": "official.sticker-thief.subscription.daily"
+        },
+        {
+          "id": "weekly",
+          "labelKey": "official.sticker-thief.subscription.weekly"
+        }
+      ]
+    }
+  ],
   "pluginId": "official.sticker-thief",
   "name": "Sticker Thief",
   "author": {
@@ -8,8 +31,8 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.9.17",
-  "coreApiRange": "^0.3.31",
+  "version": "0.10.0",
+  "coreApiRange": "^0.3.32",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -21,6 +44,21 @@
     "/stickers random",
     "/stickers resend",
     "/stickers forget"
+  ],
+  "services": [
+    {
+      "serviceId": "official.sticker-thief.subscriptions.v1",
+      "methods": [
+        {
+          "name": "read",
+          "access": "read"
+        },
+        {
+          "name": "set",
+          "access": "mutation"
+        }
+      ]
+    }
   ],
   "help": {
     "featureId": "stickers",
