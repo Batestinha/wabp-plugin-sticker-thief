@@ -33,6 +33,7 @@ export const stickerThiefCommands = [
 export const stickerThiefManifest: PluginManifest & {
   integrations: { pluginId: string; versionRange: string; description: string }[];
 } = {
+  ...{ operationCatalogVersion: require('../wa-plugin.json').operationCatalogVersion, operationPermissions: require('../wa-plugin.json').operationPermissions },
   pluginId: STICKER_THIEF_PLUGIN_ID,
   kind: 'managed_group',
   version: STICKER_THIEF_VERSION,

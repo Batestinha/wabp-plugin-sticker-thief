@@ -1,6 +1,6 @@
 {
   "name": "@wabs/plugin-sticker-thief",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "license": "MIT",
   "private": true,

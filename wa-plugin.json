@@ -31,8 +31,8 @@
   },
   "description": "Collects stickers shared in enabled groups and can import stickers from their chat archives. Members can request saved stickers on demand or subscribe to private daily or weekly deliveries.",
   "kind": "managed_group",
-  "version": "0.10.0",
-  "coreApiRange": "^0.3.32",
+  "version": "0.10.1",
+  "coreApiRange": "^0.3.34",
   "entrypoint": "dist/index.js",
   "messageNamespace": "official.sticker-thief",
   "descriptionKey": "official.sticker-thief.description",
@@ -517,5 +517,17 @@
         "reason": "Lines saved before the Bot message editor. An Announce line with text or attachments replaces this list."
       }
     ]
-  }
+  },
+  "operationCatalogVersion": 1,
+  "operationPermissions": [
+    {
+      "id": "official.sticker-thief.manage",
+      "action": "sticker-thief.manage",
+      "title": "Manage stickers",
+      "description": "Manage retained stickers and delivery preferences.",
+      "titleKey": "official.sticker-thief.help.feature.title",
+      "descriptionKey": "official.sticker-thief.help.feature.summary",
+      "defaultAccess": "explicit"
+    }
+  ]
 }
